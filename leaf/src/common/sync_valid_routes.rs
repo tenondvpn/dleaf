@@ -4,6 +4,7 @@ use std::process;
 use std::panic;
 //extern crate easy_http_request;
 use std::collections::HashMap;
+use crate::xxh32_common::*;
 use crate::common::xxh32::*;
 
 //use easy_http_request::DefaultHttpRequest;
