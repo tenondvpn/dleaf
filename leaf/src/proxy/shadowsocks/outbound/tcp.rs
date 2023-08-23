@@ -26,15 +26,6 @@ pub struct Handler {
 impl TcpOutboundHandler for Handler {
     type Stream = AnyStream;
 
-    fn get_port_with_ip(&self, ip: String) ->u32 {
-        let dt: DateTime<Local> = Local::now();
-        let timestamp = dt.timestamp() / (3600 * 24);
-        let str_for_hash = ip + timestamp.to_string();
-        let port_hash = common::xxh32::xxh32(str_for_hash);
-        let port = ((port_hash % (35000 - 10000)) + 10000);
-        return port;
-    }
-
     fn connect_addr(&self) -> Option<OutboundConnect> {
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
@@ -43,7 +34,7 @@ impl TcpOutboundHandler for Handler {
         let mut port: u16 = 0;
         if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
             address = vec[1].to_string();
-            port = get_port_with_ip(address);
+            port = common::sync_valid_routes::get_port_with_ip(address);
         } else {
             let test_str = common::sync_valid_routes::GetValidRoutes();
             let route_vec: Vec<&str> = test_str.split(",").collect();
@@ -54,7 +45,7 @@ impl TcpOutboundHandler for Handler {
                 let ip_port_vec: Vec<&str> = ip_port.split(":").collect();
                 if (ip_port_vec.len() >= 2) {
                     address = ip_port_vec[0].to_string();
-                    port = get_port_with_ip(address);
+                    port = common::sync_valid_routes::get_port_with_ip(address);
                 }
             }
 
@@ -66,7 +57,7 @@ impl TcpOutboundHandler for Handler {
                 let ip_port = route_vec[rand_idx].to_string();
                 let ip_port_vec: Vec<&str> = ip_port.split("N").collect();
                 address = ip_port_vec[0].to_string();
-                port = get_port_with_ip(address);
+                port = common::sync_valid_routes::get_port_with_ip(address);
             }
         }
 
@@ -159,7 +150,7 @@ impl TcpOutboundHandler for Handler {
 
         if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() == 0) {
             let vpn_ip = vec[1].parse::<u32>().unwrap();
-            let vpn_port = get_port_with_ip(vpn_ip);
+            let vpn_port = common::sync_valid_routes::get_port_with_ip(vpn_ip);
             buffer1.put_u32(vpn_ip);
             buffer1.put_u16(vpn_port);
             head_size += 6;

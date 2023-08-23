@@ -108,3 +108,12 @@ pub fn ClearAll() {
     connection_map.lock().unwrap().clear();
     connection_status.lock().unwrap().clear();
 }
+
+pub fn get_port_with_ip(ip: String) ->u32 {
+    let dt: DateTime<Local> = Local::now();
+    let timestamp = dt.timestamp() / (3600 * 24);
+    let str_for_hash = ip + timestamp.to_string();
+    let port_hash = common::xxh32::xxh32(str_for_hash);
+    let port = ((port_hash % (35000 - 10000)) + 10000);
+    return port;
+}
