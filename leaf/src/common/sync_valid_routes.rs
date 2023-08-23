@@ -4,7 +4,7 @@ use std::process;
 use std::panic;
 //extern crate easy_http_request;
 use std::collections::HashMap;
-use crate::xxh32::*;
+use crate::common::xxh32::*;
 
 //use easy_http_request::DefaultHttpRequest;
 use std::sync::Mutex;
