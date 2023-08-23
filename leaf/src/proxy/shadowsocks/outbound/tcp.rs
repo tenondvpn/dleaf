@@ -9,7 +9,6 @@ use crate::common;
 use tokio::io::AsyncWriteExt;
 use bytes::{BufMut, Bytes, BytesMut};
 use openssl::sha::Sha256;
-use xxhash_rust::xxh32;
 use super::shadow::ShadowedStream;
 use crate::{
     proxy::*,
@@ -31,7 +30,7 @@ impl TcpOutboundHandler for Handler {
         let dt: DateTime<Local> = Local::now();
         let timestamp = dt.timestamp() / (3600 * 24);
         let str_for_hash = ip + timestamp.to_string();
-        let port_hash = xxh32(str_for_hash);
+        let port_hash = common::xxh32::xxh32(str_for_hash);
         let port = ((port_hash % (35000 - 10000)) + 10000);
         return port;
     }
