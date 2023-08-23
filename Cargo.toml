@@ -18,7 +18,3 @@ strip = "symbols"
 opt-level = 0
 debug = true
 split-debuginfo = "unpacked"
-
-[dependencies.xxhash-rust]
-version = "0.8.5"
-features = ["xxh32", "const_xxh32"]
