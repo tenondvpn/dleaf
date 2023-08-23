@@ -4,7 +4,7 @@ use std::process;
 use std::panic;
 //extern crate easy_http_request;
 use std::collections::HashMap;
-use crate::common;
+use crate::xxh32::*;
 
 //use easy_http_request::DefaultHttpRequest;
 use std::sync::Mutex;
@@ -115,7 +115,7 @@ pub fn get_port_with_ip(ip: String) ->u32 {
     let timestamp = dt.timestamp() / (3600 * 24);
     let mut tmp_str = ip.clone();
     tmp_str += &timestamp.to_string();
-    let port_hash = common::xxh32::xxh32(tmp_str);
+    let port_hash = xxh32(tmp_str);
     let port = ((port_hash % (35000 - 10000)) + 10000);
     return port;
 }
