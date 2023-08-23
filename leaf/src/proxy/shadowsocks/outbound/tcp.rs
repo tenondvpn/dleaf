@@ -26,7 +26,7 @@ pub struct Handler {
 impl TcpOutboundHandler for Handler {
     type Stream = AnyStream;
 
-    fn get_port_with_ip(ip: String) ->u32 {
+    fn get_port_with_ip(&self, ip: String) ->u32 {
         let dt: DateTime<Local> = Local::now();
         let timestamp = dt.timestamp() / (3600 * 24);
         let str_for_hash = ip + timestamp.to_string();
