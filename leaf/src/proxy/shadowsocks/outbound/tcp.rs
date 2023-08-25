@@ -36,9 +36,7 @@ impl TcpOutboundHandler for Handler {
         let mut port: u16 = 0;
         if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
             address = vec[1].to_string();
-            common::sync_valid_routes::SetValidRoutes("AAAA".to_string());
             port = common::sync_valid_routes::get_port_with_ip(address.clone());
-            common::sync_valid_routes::SetValidRoutes("BBBB".to_string());
         } else {
             let test_str = common::sync_valid_routes::GetValidRoutes();
             let route_vec: Vec<&str> = test_str.split(",").collect();
@@ -186,9 +184,9 @@ impl TcpOutboundHandler for Handler {
                 buffer1.put_slice(&decode_hex);
             }
         } else {
-            let pk_str = vec[3].to_string();
-            let pk_str = String::from(pk_str.clone());
-            buffer1.put_slice(pk_str[..].as_bytes());
+            let pk_str = hex::decode(vec[3]).expect("Decoding failed");
+            common::sync_valid_routes::SetValidRoutes("success use ecc pk".to_string());
+            buffer1.put_slice(pk_str);
         }
         
         buffer1.put_u8(19);
