@@ -4,6 +4,8 @@ use std::process;
 use std::panic;
 //extern crate easy_http_request;
 use std::collections::HashMap;
+use chrono::DateTime;
+use chrono::Local;
 use xxhash_rust::const_xxh3::xxh3_64 as const_xxh3;
 use xxhash_rust::xxh3::xxh3_64;
 //use easy_http_request::DefaultHttpRequest;
@@ -110,7 +112,7 @@ pub fn ClearAll() {
     connection_status.lock().unwrap().clear();
 }
 
-pub fn get_port_with_ip(ip: String) ->u32 {
+pub fn get_port_with_ip(ip: String) ->u64 {
     let dt: DateTime<Local> = Local::now();
     let timestamp = dt.timestamp() / (3600 * 24);
     let mut tmp_str = ip.clone();
