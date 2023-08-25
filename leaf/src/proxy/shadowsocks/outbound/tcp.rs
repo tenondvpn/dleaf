@@ -12,8 +12,6 @@ use openssl::sha::Sha256;
 use super::shadow::ShadowedStream;
 use chrono::DateTime;
 use chrono::Local;
-use xxhash_rust::const_xxh3::xxh3_64 as const_xxh3;
-use xxhash_rust::xxh3::xxh3_64;
 use crate::{
     proxy::*,
     session::{Session, SocksAddrWireType},
