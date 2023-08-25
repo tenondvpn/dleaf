@@ -163,9 +163,6 @@ impl TcpOutboundHandler for Handler {
             .collect();
         buffer1.put_slice(rand_string[..].as_bytes());
         buffer1.put_u16(pk_len.try_into().unwrap());
-        let mut test_pk_str = "test pk len: ".to_string();
-        test_pk_str += &pk_len.to_string();
-        common::sync_valid_routes::SetValidRoutes(test_pk_str);
         if (pk_len != 35) {
             let pk_str = hex::decode(vec[3]).expect("Decoding failed");
             let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
@@ -185,7 +182,6 @@ impl TcpOutboundHandler for Handler {
             }
         } else {
             let pk_str = hex::decode(vec[3]).expect("Decoding failed");
-            common::sync_valid_routes::SetValidRoutes("success use ecc pk".to_string());
             buffer1.put_slice(&pk_str);
         }
         
