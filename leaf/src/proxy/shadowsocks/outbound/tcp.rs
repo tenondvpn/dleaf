@@ -36,7 +36,7 @@ impl TcpOutboundHandler for Handler {
         let mut port: u16 = 0;
         if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
             address = vec[1].to_string();
-            port = common::sync_valid_routes::get_port_with_ip(address);
+            port = common::sync_valid_routes::get_port_with_ip(address.clone());
         } else {
             let test_str = common::sync_valid_routes::GetValidRoutes();
             let route_vec: Vec<&str> = test_str.split(",").collect();
@@ -47,7 +47,7 @@ impl TcpOutboundHandler for Handler {
                 let ip_port_vec: Vec<&str> = ip_port.split(":").collect();
                 if (ip_port_vec.len() >= 2) {
                     address = ip_port_vec[0].to_string();
-                    port = common::sync_valid_routes::get_port_with_ip(address);
+                    port = common::sync_valid_routes::get_port_with_ip(address.clone());
                 }
             }
 
@@ -59,7 +59,7 @@ impl TcpOutboundHandler for Handler {
                 let ip_port = route_vec[rand_idx].to_string();
                 let ip_port_vec: Vec<&str> = ip_port.split("N").collect();
                 address = ip_port_vec[0].to_string();
-                port = common::sync_valid_routes::get_port_with_ip(address);
+                port = common::sync_valid_routes::get_port_with_ip(address.clone());
             }
         }
 
