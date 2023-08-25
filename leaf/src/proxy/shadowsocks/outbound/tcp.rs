@@ -96,13 +96,11 @@ impl TcpOutboundHandler for Handler {
             all_len -= 6;
         }
 
-        if (pk_len != 66) {
-            let pk_str = hex::decode(vec[3]).expect("Decoding failed");
-            let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
-            if (!ex_hash.eq("") && common::sync_valid_routes::GetResponseStatus(address.clone())) {
-                pk_len = (ex_hash.len() as u32) / 2 + 2;
-                all_len = 26 + rand_len + 1 + pk_len - 6;
-            }
+        let pk_str = hex::decode(vec[3]).expect("Decoding failed");
+        let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
+        if (!ex_hash.eq("") && common::sync_valid_routes::GetResponseStatus(address.clone())) {
+            pk_len = (ex_hash.len() as u32) / 2 + 2;
+            all_len = 26 + rand_len + 1 + pk_len - 6;
         }
 
         let mut buffer1 = BytesMut::with_capacity(all_len as usize);
@@ -167,7 +165,6 @@ impl TcpOutboundHandler for Handler {
         let pk_str = hex::decode(vec[3]).expect("Decoding failed");
         let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
         if (ex_hash.eq("") || !common::sync_valid_routes::GetResponseStatus(address.clone())) {
-            let mut test_str = hex::encode(pk_str.clone());
             let mut hasher = Sha256::new();
             hasher.update(&pk_str.clone());
             let result = hasher.finish();
