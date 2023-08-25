@@ -8,6 +8,7 @@ use chrono::DateTime;
 use chrono::Local;
 use xxhash_rust::const_xxh3::xxh3_64 as const_xxh3;
 use xxhash_rust::xxh3::xxh3_64;
+use xxhash_rust::xxh3::xxh32;
 //use easy_http_request::DefaultHttpRequest;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
@@ -117,7 +118,7 @@ pub fn get_port_with_ip(ip: String) ->u16 {
     let timestamp = dt.timestamp() / (3600 * 24);
     let mut tmp_str = ip.clone();
     tmp_str += &timestamp.to_string();
-    let port_hash = const_xxh3(tmp_str.as_bytes());
+    let port_hash = xxh32(tmp_str.as_bytes(), 35324234u32);
     let port = ((port_hash % (35000 - 10000)) + 10000);
     return port as u16;
 }
