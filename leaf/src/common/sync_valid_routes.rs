@@ -8,7 +8,7 @@ use chrono::DateTime;
 use chrono::Local;
 use xxhash_rust::const_xxh3::xxh3_64 as const_xxh3;
 use xxhash_rust::xxh3::xxh3_64;
-use xxhash_rust::xxh3::xxh32;
+use xxhash_rust::xxh32;
 //use easy_http_request::DefaultHttpRequest;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
