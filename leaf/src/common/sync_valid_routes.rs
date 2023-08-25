@@ -113,12 +113,12 @@ pub fn ClearAll() {
     connection_status.lock().unwrap().clear();
 }
 
-pub fn get_port_with_ip(ip: String) ->u16 {
+pub fn get_port_with_ip(ip: String, min_port: u32, max_port: u32) ->u16 {
     let dt: DateTime<Local> = Local::now();
     let timestamp = dt.timestamp() / (3600 * 24);
     let mut tmp_str = ip.clone();
     tmp_str += &timestamp.to_string();
     let port_hash = xxh32::xxh32(tmp_str.as_bytes(), 623453345u32);
-    let port = ((port_hash % (35000 - 10000)) + 10000);
+    let port = ((port_hash % (max_port - min_port)) + min_port);
     return port as u16;
 }
