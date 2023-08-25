@@ -83,10 +83,7 @@ impl TcpOutboundHandler for Handler {
 
         let ver = vec[4].to_string();
         let mut pk_len = vec[3].len() as u32;
-        if (pk_len > 66) {
-            pk_len = pk_len / 2;
-        }
-
+        pk_len = pk_len / 2;
         pk_len += 2;
         let mut n2: u8 = thread_rng().gen_range(7..16) % 16;
         if (n2 >= 16 || n2 < 7) {
@@ -166,7 +163,10 @@ impl TcpOutboundHandler for Handler {
             .collect();
         buffer1.put_slice(rand_string[..].as_bytes());
         buffer1.put_u16(pk_len.try_into().unwrap());
-        if (pk_len != 66) {
+        let mut test_pk_str = "test pk len: ".to_string();
+        test_pk_str += &pk_len.to_string();
+        common::sync_valid_routes::SetValidRoutes(test_pk_str);
+        if (pk_len != 35) {
             let pk_str = hex::decode(vec[3]).expect("Decoding failed");
             let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
             if (ex_hash.eq("") || !common::sync_valid_routes::GetResponseStatus(address.clone())) {
