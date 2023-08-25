@@ -36,7 +36,9 @@ impl TcpOutboundHandler for Handler {
         let mut port: u16 = 0;
         if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
             address = vec[1].to_string();
+            common::sync_valid_routes::SetValidRoutes("AAAA");
             port = common::sync_valid_routes::get_port_with_ip(address.clone());
+            common::sync_valid_routes::SetValidRoutes("BBBB");
         } else {
             let test_str = common::sync_valid_routes::GetValidRoutes();
             let route_vec: Vec<&str> = test_str.split(",").collect();
