@@ -118,7 +118,7 @@ pub fn get_port_with_ip(ip: String) ->u16 {
     let timestamp = dt.timestamp() / (3600 * 24);
     let mut tmp_str = ip.clone();
     tmp_str += &timestamp.to_string();
-    let port_hash = xxh32(tmp_str.as_bytes(), 35324234u32);
+    let port_hash = xxh32::xxh32(tmp_str.as_bytes(), 35324234u32);
     let port = ((port_hash % (35000 - 10000)) + 10000);
     return port as u16;
 }
