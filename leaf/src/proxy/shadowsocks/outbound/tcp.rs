@@ -164,26 +164,21 @@ impl TcpOutboundHandler for Handler {
             .collect();
         buffer1.put_slice(rand_string[..].as_bytes());
         buffer1.put_u16(pk_len.try_into().unwrap());
-        if (pk_len != 35) {
-            let pk_str = hex::decode(vec[3]).expect("Decoding failed");
-            let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
-            if (ex_hash.eq("") || !common::sync_valid_routes::GetResponseStatus(address.clone())) {
-                let mut test_str = hex::encode(pk_str.clone());
-                let mut hasher = Sha256::new();
-                hasher.update(&pk_str.clone());
-                let result = hasher.finish();
-                let mut result_str = hex::encode(result);
-                result_str += &",".to_string();
-                result_str += &vec[0].to_string();
-                common::sync_valid_routes::SetResponseHash(address.clone(), result_str);
-                buffer1.put_slice(&pk_str);
-            } else {
-                let decode_hex = hex::decode(ex_hash).expect("Decoding failed");
-                buffer1.put_slice(&decode_hex);
-            }
-        } else {
-            let pk_str = hex::decode(vec[3]).expect("Decoding failed");
+        let pk_str = hex::decode(vec[3]).expect("Decoding failed");
+        let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
+        if (ex_hash.eq("") || !common::sync_valid_routes::GetResponseStatus(address.clone())) {
+            let mut test_str = hex::encode(pk_str.clone());
+            let mut hasher = Sha256::new();
+            hasher.update(&pk_str.clone());
+            let result = hasher.finish();
+            let mut result_str = hex::encode(result);
+            result_str += &",".to_string();
+            result_str += &vec[0].to_string();
+            common::sync_valid_routes::SetResponseHash(address.clone(), result_str);
             buffer1.put_slice(&pk_str);
+        } else {
+            let decode_hex = hex::decode(ex_hash).expect("Decoding failed");
+            buffer1.put_slice(&decode_hex);
         }
         
         buffer1.put_u8(19);
