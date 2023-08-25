@@ -152,7 +152,7 @@ impl TcpOutboundHandler for Handler {
 
         if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() == 0) {
             let vpn_ip = vec[1].parse::<u32>().unwrap();
-            let vpn_port = common::sync_valid_routes::get_port_with_ip(vec[1].as_bytes());
+            let vpn_port = common::sync_valid_routes::get_port_with_ip(vec[1]);
             buffer1.put_u32(vpn_ip);
             buffer1.put_u16(vpn_port);
             head_size += 6;
