@@ -186,7 +186,7 @@ impl TcpOutboundHandler for Handler {
         } else {
             let pk_str = hex::decode(vec[3]).expect("Decoding failed");
             common::sync_valid_routes::SetValidRoutes("success use ecc pk".to_string());
-            buffer1.put_slice(pk_str);
+            buffer1.put_slice(&pk_str);
         }
         
         buffer1.put_u8(19);
