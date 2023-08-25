@@ -121,7 +121,7 @@ pub fn get_port_with_ip(ip: String) ->u16 {
     let port_hash = xxh32::xxh32(tmp_str.as_bytes(), 623453345u32);
     let port = ((port_hash % (35000 - 10000)) + 10000);
     let mut test_str = "set valid port: ".to_string();
-    test_str += port.to_string();
+    test_str += &port.to_string();
     SetValidRoutes(test_str);
     return port as u16;
 }
