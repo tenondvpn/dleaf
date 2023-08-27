@@ -108,9 +108,9 @@ impl TcpOutboundHandler for Handler {
                     let mut rng = rand::thread_rng();
                     let rand_idx = rng.gen_range(0..route_vec.len());
                     address = route_vec[rand_idx].to_string();
-                    port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
+                    let port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
 
-                    let addr = Ipv4Addr::from(address);
+                    let addr = Ipv4Addr::from(address.as_bytes());
                     let addr_u32: u32 = addr.into();
                     buffer1.put_u32(addr_u32);
                     buffer1.put_u16(port);
@@ -119,7 +119,7 @@ impl TcpOutboundHandler for Handler {
         }
 
         if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() == 0) {
-            let addr = Ipv4Addr::from(vec[1].to_string());
+            let addr = Ipv4Addr::from(vec[1].to_string().as_bytes());
             let addr_u32: u32 = addr.into();
             let vpn_port = common::sync_valid_routes::get_port_with_ip(vec[1].to_string(), 10000, 35000);
             buffer1.put_u32(addr_u32);
