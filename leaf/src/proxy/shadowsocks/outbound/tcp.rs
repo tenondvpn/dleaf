@@ -27,8 +27,6 @@ pub struct Handler {
 #[async_trait]
 impl TcpOutboundHandler for Handler {
     type Stream = AnyStream;
-    pub tmp_address: String;
-
     fn connect_addr(&self) -> Option<OutboundConnect> {
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
@@ -45,8 +43,6 @@ impl TcpOutboundHandler for Handler {
             let rand_idx = rng.gen_range(0..route_vec.len());
             address = route_vec[rand_idx].to_string();
             port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
-
-            tmp_address = address.clone();
 
             let mut test_str = "tcp connect use route: ".to_string();
             test_str += &address.clone();
@@ -69,10 +65,7 @@ impl TcpOutboundHandler for Handler {
         let tmp_pass = tmp_vec[0].to_string();
         let vec :Vec<&str> = tmp_pass.split("-").collect(); 
         let tmp_ps = vec[0].to_string();
-        let mut address = self.address.clone();
-        if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
-            address = vec[1].to_string();
-        }
+        let address = vec[1].to_string();
 
         let ver = vec[4].to_string();
         let mut pk_len = vec[3].len() as u32;
