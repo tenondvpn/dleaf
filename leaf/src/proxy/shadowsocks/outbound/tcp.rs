@@ -48,7 +48,8 @@ impl TcpOutboundHandler for Handler {
             let mut test_str = "tcp connect use route: ".to_string();
             test_str += &address.clone();
             test_str += &"-".to_string();
-            test_str += &port.to_string();
+            let tmp_val = port as u32;
+            test_str += &tmp_val.to_string();
             common::sync_valid_routes::SetValidRoutes(test_str);
         }
 
