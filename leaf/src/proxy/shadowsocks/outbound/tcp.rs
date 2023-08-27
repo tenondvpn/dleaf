@@ -43,13 +43,6 @@ impl TcpOutboundHandler for Handler {
             let rand_idx = rng.gen_range(0..route_vec.len());
             address = route_vec[rand_idx].to_string();
             port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
-
-            let mut test_str = "tcp connect use route: ".to_string();
-            test_str += &address.clone();
-            test_str += &"-".to_string();
-            let tmp_val = port as u32;
-            test_str += &tmp_val.to_string();
-            common::sync_valid_routes::SetValidRoutes(test_str);
         }
 
         Some(OutboundConnect::Proxy(address.clone(), port))
