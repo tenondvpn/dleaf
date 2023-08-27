@@ -86,7 +86,10 @@ impl TcpOutboundHandler for Handler {
         let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
         if (!ex_hash.eq("") && common::sync_valid_routes::GetResponseStatus(address.clone())) {
             pk_len = (ex_hash.len() as u32) / 2 + 2;
-            all_len = 26 + rand_len + 1 + pk_len - 6;
+            all_len = 26 + rand_len + 1 + pk_len;
+            if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
+                all_len -= 6;
+            }
         }
 
         let mut buffer1 = BytesMut::with_capacity(all_len as usize);
@@ -164,11 +167,13 @@ impl TcpOutboundHandler for Handler {
             i = i + 1;
         }
 
-        if (buffer1[0] as u8 >= 16) {
+        if (buffer1[head_size] as u8 >= 16) {
+            common::sync_valid_routes::SetValidRoutes("DDDDDDDD-0".to_string());
             panic!("this is a terrible mistake!");
         }
 
         if buffer1.len() != all_len as usize {
+            common::sync_valid_routes::SetValidRoutes("DDDDDDDD-1".to_string());
             panic!("this is a terrible mistake!");
         }
 
