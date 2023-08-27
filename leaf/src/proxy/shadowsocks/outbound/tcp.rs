@@ -104,10 +104,10 @@ impl TcpOutboundHandler for Handler {
                     let route_vec: Vec<&str> = tmp_route.split(",").collect();
                     let mut rng = rand::thread_rng();
                     let rand_idx = rng.gen_range(0..route_vec.len());
-                    address = route_vec[rand_idx].to_string();
-                    let port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
+                    let ex_address = route_vec[rand_idx].to_string();
+                    let port = common::sync_valid_routes::get_port_with_ip(ex_address.clone(), 35000, 65000);
 
-                    let addr : Ipv4Addr = address.clone().parse().unwrap();
+                    let addr : Ipv4Addr = ex_address.clone().parse().unwrap();
                     let addr_u32: u32 = addr.into();
                     buffer1.put_u32(addr_u32);
                     buffer1.put_u16(port);
