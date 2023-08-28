@@ -176,7 +176,8 @@ where
                     ready!(me.poll_read_exact(cx, read_size))?;
                     let dec = me.dec.as_mut().expect("uninitialized cipher");
                     dec.decrypt(&mut me.read_buf).map_err(|_| crypto_err())?;
-                    if (me.read_buf[0..4] == b"conn") {
+                    let tag_slice = &me.read_buf[0..4];
+                    if (tag_slice == b"conn") {
                         let tmp_slice = &me.read_buf[4..8];
                         let ptr :*const u8 = tmp_slice.as_ptr();
                         let ptr :*const u32 = ptr as *const u32;
