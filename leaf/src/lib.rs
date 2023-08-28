@@ -305,6 +305,10 @@ pub fn get_status() -> String {
     common::sync_valid_routes::GetValidRoutes()
 }
 
+pub fn get_nodes() -> String {
+    common::sync_valid_routes::GetVpnNodes()
+}
+
 pub fn test_config(config_path: &str) -> Result<(), Error> {
     config::from_file(config_path)
         .map(|_| ())
