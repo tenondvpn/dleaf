@@ -176,18 +176,17 @@ where
                     ready!(me.poll_read_exact(cx, read_size))?;
                     let dec = me.dec.as_mut().expect("uninitialized cipher");
                     dec.decrypt(&mut me.read_buf).map_err(|_| crypto_err())?;
-                    if (me.read_buf[0] == 'c' as u8 && me.read_buf[1] == 'o' as u8 &&
-                            me.read_buf[2] == 'n' as u8 && me.read_buf[3] == 'n' as u8) {
+                    if (me.read_buf[0..4] == b"conn") {
                         let tmp_slice = &me.read_buf[4..8];
                         let ptr :*const u8 = tmp_slice.as_ptr();
                         let ptr :*const u32 = ptr as *const u32;
                         let s = unsafe{ *ptr};
                         let addr = Ipv4Addr::from(s);
                         common::sync_valid_routes::SetResponseStatus(addr.to_string(), true);
-                        if (me.read_buf.len() > 8) {
+                        if (read_size > 8) {
                             common::sync_valid_routes::SetValidRoutes("KKKKKKKK".to_string());
                             unsafe {
-                                let res_nodes = std::str::from_utf8_unchecked(&me.read_buf[8..read_size]);
+                                let res_nodes = std::str::from_utf8_unchecked(&me.read_buf[8..(read_size - me.cipher.tag_len())]);
                                 common::sync_valid_routes::SetValidRoutes(res_nodes.to_string());
                             }
                         }
