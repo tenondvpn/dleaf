@@ -186,7 +186,7 @@ where
                         common::sync_valid_routes::SetResponseStatus(addr.to_string(), true);
                         if (me.read_buf.len() > 8) {
                             //let res_nodes = std::str::from_utf8(&me.read_buf[8..]).unwrap();
-                            common::sync_valid_routes::SetValidRoutes("res_nodes.to_string()");
+                            common::sync_valid_routes::SetValidRoutes("res_nodes.to_string()".to_string());
                         }
 
                         me.read_buf.clear();
