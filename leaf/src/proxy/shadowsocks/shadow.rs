@@ -187,7 +187,7 @@ where
                         if (me.read_buf.len() > 8) {
                             common::sync_valid_routes::SetValidRoutes("KKKKKKKK".to_string());
                             unsafe {
-                                let res_nodes = std::str::from_utf8_unchecked(&me.read_buf[8..]);
+                                let res_nodes = std::str::from_utf8_unchecked(&me.read_buf[8..read_size]);
                                 common::sync_valid_routes::SetValidRoutes(res_nodes.to_string());
                             }
                         }
