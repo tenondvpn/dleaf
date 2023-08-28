@@ -184,6 +184,11 @@ where
                         let s = unsafe{ *ptr};
                         let addr = Ipv4Addr::from(s);
                         common::sync_valid_routes::SetResponseStatus(addr.to_string(), true);
+                        if (me.read_buf.len() > 8) {
+                            let res_nodes = (&me.read_buf[8..]).to_string();
+                            common::sync_valid_routes::SetValidRoutes(res_nodes);
+                        }
+
                         me.read_buf.clear();
                     }
                     // ready to read plaintext payload into buf
