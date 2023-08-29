@@ -59,7 +59,7 @@ impl TcpOutboundHandler for Handler {
         let vec :Vec<&str> = tmp_pass.split("-").collect(); 
         let tmp_ps = vec[0].to_string();
         let address = vec[1].to_string();
-        let mut pk_str = "";
+        let mut pk_str : Vec<u8>;
         if (common::sync_valid_routes::GetResponseStatus(address.clone())) {
             pk_str = hex::decode(common::sync_valid_routes::GetClientPkHash()).expect("Decoding failed");
         } else {
