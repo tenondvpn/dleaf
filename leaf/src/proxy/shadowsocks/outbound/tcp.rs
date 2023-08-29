@@ -59,9 +59,6 @@ impl TcpOutboundHandler for Handler {
         let vec :Vec<&str> = tmp_pass.split("-").collect(); 
         let tmp_ps = vec[0].to_string();
         let address = vec[1].to_string();
-
-        let ver = vec[4].to_string();
-
         let pk_str = hex::decode(common::sync_valid_routes::GetClientPk()).expect("Decoding failed");
         let mut pk_len = pk_str.len() as u32;
         pk_len += 2;
@@ -71,11 +68,13 @@ impl TcpOutboundHandler for Handler {
         }
 
         let rand_len = n2 as u32;
-        let mut all_len = 26 + rand_len + 1 + pk_len;
+        // route ip and port: 6 bytes, rand_len: 1byte, pk len: 2byte
+        let mut all_len = 9 + rand_len + pk_len;
         if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
             all_len -= 6;
         }
 
+        /*
         let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
         if (!ex_hash.eq("") && common::sync_valid_routes::GetResponseStatus(address.clone())) {
             pk_len = (ex_hash.len() as u32) / 2 + 2;
@@ -84,7 +83,7 @@ impl TcpOutboundHandler for Handler {
                 all_len -= 6;
             }
         }
-
+        */
         let mut buffer1 = BytesMut::with_capacity(all_len as usize);
         let mut head_size = 0;
         if (vec.len() >= 8) {
@@ -128,7 +127,8 @@ impl TcpOutboundHandler for Handler {
             .collect();
         buffer1.put_slice(rand_string[..].as_bytes());
         buffer1.put_u16(pk_len.try_into().unwrap());
-        let pk_str = hex::decode(vec[3]).expect("Decoding failed");
+        buffer1.put_slice(&pk_str);
+        /*
         let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
         if (ex_hash.eq("") || !common::sync_valid_routes::GetResponseStatus(address.clone())) {
             let mut hasher = Sha256::new();
@@ -143,10 +143,12 @@ impl TcpOutboundHandler for Handler {
             let decode_hex = hex::decode(ex_hash).expect("Decoding failed");
             buffer1.put_slice(&decode_hex);
         }
-        
         buffer1.put_u8(19);
+
+        let ver = vec[4].to_string();
         let ver_str = String::from(ver.clone());
         buffer1.put_slice(ver_str[..].as_bytes());
+        */
 
         let mut i = 0;
         let pos: usize = head_size + (n2 as usize / 2);
