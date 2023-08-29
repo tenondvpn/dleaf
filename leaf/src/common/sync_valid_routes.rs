@@ -111,7 +111,7 @@ pub fn SetClientPk(pk: String) {
     v.push_str(&pk);
 }
 
-pub fn GetClientPk(svr_add: String) -> String {
+pub fn GetClientPk() -> String {
     let mut v = client_pk.lock().unwrap().clone();
     v
 }
