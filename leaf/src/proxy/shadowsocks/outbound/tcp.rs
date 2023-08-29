@@ -69,7 +69,7 @@ impl TcpOutboundHandler for Handler {
 
         let rand_len = n2 as u32;
         // route ip and port: 6 bytes, rand_len: 1byte, pk len: 2byte
-        let mut all_len = 9 + rand_len + pk_len;
+        let mut all_len = 7 + rand_len + pk_len;
         if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
             all_len -= 6;
         }
