@@ -313,6 +313,10 @@ pub fn set_pk(pk: String) {
     common::sync_valid_routes::SetClientPk(pk);
 }
 
+pub fn set_pk_hash(pk: String) {
+    common::sync_valid_routes::SetClientPkHash(pk);
+}
+
 pub fn test_config(config_path: &str) -> Result<(), Error> {
     config::from_file(config_path)
         .map(|_| ())

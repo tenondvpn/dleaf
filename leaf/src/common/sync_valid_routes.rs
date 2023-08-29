@@ -17,6 +17,7 @@ lazy_static! {
     static ref valid_tmp_id: Mutex<String> = Mutex::new(String::from(""));
     static ref vpn_nodes: Mutex<String> = Mutex::new(String::from(""));
     static ref client_pk: Mutex<String> = Mutex::new(String::from(""));
+    static ref client_pk_hash: Mutex<String> = Mutex::new(String::from(""));
     static ref started: Mutex<u32> = Mutex::new(0);
     static ref connection_map: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
     static ref connection_status: Mutex<HashMap<String, bool>> = Mutex::new(HashMap::new());
@@ -113,5 +114,16 @@ pub fn SetClientPk(pk: String) {
 
 pub fn GetClientPk() -> String {
     let mut v = client_pk.lock().unwrap().clone();
+    v
+}
+
+pub fn SetClientPkHash(pk: String) {
+    client_pk_hash.lock().unwrap().clear();
+    let mut v = client_pk_hash.lock().unwrap();
+    v.push_str(&pk);
+}
+
+pub fn GetClientPkHash() -> String {
+    let mut v = client_pk_hash.lock().unwrap().clone();
     v
 }
