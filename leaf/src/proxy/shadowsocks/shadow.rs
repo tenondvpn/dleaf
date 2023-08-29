@@ -187,7 +187,7 @@ where
                         if (read_size > 8) {
                             unsafe {
                                 let res_nodes = std::str::from_utf8_unchecked(&me.read_buf[8..(read_size - me.cipher.tag_len())]);
-                                common::sync_valid_routes::SetVpnNodes(res_nodes.to_string());
+                                common::sync_valid_routes::SetVpnNodes(hex::encode(res_nodes).to_string());
                             }
                         }
 
