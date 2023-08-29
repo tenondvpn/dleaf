@@ -310,7 +310,7 @@ pub fn get_nodes() -> String {
 }
 
 pub fn set_pk(pk: String) {
-    common::sync_valid_routes::SetClientPk(hex::decode(pk).unwrap());
+    common::sync_valid_routes::SetClientPk(pk);
 }
 
 pub fn test_config(config_path: &str) -> Result<(), Error> {
