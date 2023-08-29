@@ -309,7 +309,7 @@ pub fn get_nodes() -> String {
     common::sync_valid_routes::GetVpnNodes()
 }
 
-pub fn set_pk(pk: String) -> String {
+pub fn set_pk(pk: String) {
     common::sync_valid_routes::SetClientPk(pk);
 }
 
