@@ -309,6 +309,10 @@ pub fn get_nodes() -> String {
     common::sync_valid_routes::GetVpnNodes()
 }
 
+pub fn set_pk(pk: String) -> String {
+    common::sync_valid_routes::SetClientPk(pk);
+}
+
 pub fn test_config(config_path: &str) -> Result<(), Error> {
     config::from_file(config_path)
         .map(|_| ())
