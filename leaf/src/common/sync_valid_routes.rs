@@ -20,7 +20,7 @@ lazy_static! {
     static ref started: Mutex<u32> = Mutex::new(0);
     static ref connection_map: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
     static ref connection_status: Mutex<HashMap<String, bool>> = Mutex::new(HashMap::new());
-    static ref msg_queue: Mutex<VecDeque<String>> = Mutex::new(VecDeque<String>::new());
+    static ref msg_queue: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 }
 
 pub fn GetValidRoutes() -> String {
@@ -100,10 +100,10 @@ pub fn PushClientMsg(msg: String) {
 
 pub fn GetClientMsg() -> String {
     let mut v = msg_queue.lock().unwrap();
-    if (v.empty()) {
-        ""
+    if (v.is_empty()) {
+        "".to_string()
     } else {
-        msg = v.front().unwrap();
+        let msg = v.front().unwrap();
         v.pop_front();
         msg
     }
@@ -117,7 +117,7 @@ pub fn SetClientPk(pk: String) {
 
 pub fn GetClientPk() -> String {
     let msg = GetClientMsg();
-    if (!msg.empty()) {
+    if (!msg.is_empty()) {
         msg
     } else {
         let mut v = client_pk.lock().unwrap().clone();
