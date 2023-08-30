@@ -321,6 +321,10 @@ pub fn push_client_msg(msg: String) {
     common::sync_valid_routes::PushClientMsg(msg);
 }
 
+pub fn get_response_msg(msg: String) -> String {
+    common::sync_valid_routes::GetResponseMsg();
+}
+
 pub fn test_config(config_path: &str) -> Result<(), Error> {
     config::from_file(config_path)
         .map(|_| ())
