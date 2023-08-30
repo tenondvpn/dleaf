@@ -95,7 +95,7 @@ pub fn get_port_with_ip(ip: String, min_port: u32, max_port: u32) ->u16 {
 
 pub fn PushClientMsg(msg: String) {
     let mut v = msg_queue.lock().unwrap();
-    v.push_back(&msg);
+    v.push_back(msg);
 }
 
 pub fn GetClientMsg() -> String {
@@ -105,7 +105,7 @@ pub fn GetClientMsg() -> String {
     } else {
         let msg = v.front().unwrap();
         v.pop_front();
-        msg
+        *msg
     }
 }
 
