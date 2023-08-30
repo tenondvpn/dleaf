@@ -2,38 +2,25 @@ use std::thread;
 use std::time::Duration;
 use std::process;
 use std::panic;
-//extern crate easy_http_request;
 use std::collections::HashMap;
 use chrono::DateTime;
 use chrono::Local;
 use xxhash_rust::const_xxh3::xxh3_64 as const_xxh3;
 use xxhash_rust::xxh3::xxh3_64;
 use xxhash_rust::xxh32;
-//use easy_http_request::DefaultHttpRequest;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
+use std::collections::VecDeque;
+
 lazy_static! {
     static ref valid_routes: Mutex<String> = Mutex::new(String::from(""));
-    static ref valid_tmp_id: Mutex<String> = Mutex::new(String::from(""));
     static ref vpn_nodes: Mutex<String> = Mutex::new(String::from(""));
     static ref client_pk: Mutex<String> = Mutex::new(String::from(""));
     static ref client_pk_hash: Mutex<String> = Mutex::new(String::from(""));
     static ref started: Mutex<u32> = Mutex::new(0);
     static ref connection_map: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
     static ref connection_status: Mutex<HashMap<String, bool>> = Mutex::new(HashMap::new());
-}
-
-pub fn StartThread(id: String) {
-    let mut v = started.lock().unwrap();
-    if (*v > 0) {
-        return;
-    }
-
-    *v = 1;
-    {
-        let mut tmp_v = valid_tmp_id.lock().unwrap();
-        tmp_v.push_str(&id.clone());
-    }
+    static ref msg_queue: Mutex<VecDeque<String>> = Mutex::new(VecDeque<String>::new());
 }
 
 pub fn GetValidRoutes() -> String {
@@ -106,6 +93,22 @@ pub fn get_port_with_ip(ip: String, min_port: u32, max_port: u32) ->u16 {
     return port as u16;
 }
 
+pub fn PushClientMsg(msg: String) {
+    let mut v = msg_queue.lock().unwrap();
+    v.push_back(&msg);
+}
+
+pub fn GetClientMsg() -> String {
+    let mut v = msg_queue.lock().unwrap();
+    if (v.empty()) {
+        ""
+    } else {
+        msg = v.front().unwrap();
+        v.pop_front();
+        msg
+    }
+}
+
 pub fn SetClientPk(pk: String) {
     client_pk.lock().unwrap().clear();
     let mut v = client_pk.lock().unwrap();
@@ -113,8 +116,13 @@ pub fn SetClientPk(pk: String) {
 }
 
 pub fn GetClientPk() -> String {
-    let mut v = client_pk.lock().unwrap().clone();
-    v
+    let msg = GetClientMsg();
+    if (!msg.empty()) {
+        msg
+    } else {
+        let mut v = client_pk.lock().unwrap().clone();
+        v
+    }
 }
 
 pub fn SetClientPkHash(pk: String) {
