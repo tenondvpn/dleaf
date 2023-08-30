@@ -105,7 +105,7 @@ pub fn GetClientMsg() -> String {
     } else {
         let msg = v.front().unwrap().clone();
         v.pop_front();
-        *msg
+        (*msg).to_string()
     }
 }
 
