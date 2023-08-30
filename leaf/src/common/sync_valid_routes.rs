@@ -103,7 +103,7 @@ pub fn GetClientMsg() -> String {
     if (v.is_empty()) {
         "".to_string()
     } else {
-        let msg = v.front().unwrap();
+        let msg = v.front().unwrap().clone();
         v.pop_front();
         *msg
     }
