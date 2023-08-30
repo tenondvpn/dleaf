@@ -321,7 +321,7 @@ pub fn push_client_msg(msg: String) {
     common::sync_valid_routes::PushClientMsg(msg);
 }
 
-pub fn get_response_msg(msg: String) -> String {
+pub fn get_response_msg() -> String {
     common::sync_valid_routes::GetResponseMsg()
 }
 
