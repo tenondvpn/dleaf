@@ -192,7 +192,7 @@ where
                         }
 
                         me.read_buf.clear();
-                        me.read_state = ReadState::PendingData(0);
+                        //me.read_state = ReadState::PendingData(0);
                     } else {
                         // ready to read plaintext payload into buf
                         me.read_state = ReadState::PendingData(n);
