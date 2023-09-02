@@ -21,6 +21,7 @@ lazy_static! {
     static ref connection_map: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
     static ref connection_status: Mutex<HashMap<String, bool>> = Mutex::new(HashMap::new());
     static ref tx_list_msg: Mutex<String> = Mutex::new(String::from(""));
+    static ref transaction_msg: Mutex<String> = Mutex::new(String::from(""));
     static ref res_queue: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 }
 
@@ -106,6 +107,18 @@ pub fn GetClientMsg() -> String {
     v
 }
 
+pub fn PushTransactionMsg(msg: String) {
+    transaction_msg.lock().unwrap().clear();
+    let mut v = transaction_msg.lock().unwrap();
+    v.push_str(&msg);
+}
+
+pub fn GetTransactionMsg() -> String {
+    let mut v = transaction_msg.lock().unwrap().clone();
+    transaction_msg.lock().unwrap().clear();
+    v
+}
+
 pub fn PushResponseMsg(msg: String) {
     let mut v = res_queue.lock().unwrap();
     v.push_back(msg);
@@ -140,9 +153,12 @@ pub fn SetClientPkHash(pk: String) {
 }
 
 pub fn GetClientPkHash() -> String {
-    let msg = GetClientMsg();
+    let mut msg = GetTransactionMsg();
+    if (msg.is_empty()) {
+        msg = GetClientMsg();
+    }
+
     if (!msg.is_empty()) {
-        SetValidRoutes("success us pushed msg.".to_string());
         msg
     } else {
         let mut v = client_pk_hash.lock().unwrap().clone();
