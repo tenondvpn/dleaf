@@ -135,7 +135,7 @@ pub fn SetClientPk(pk: String) {
 pub fn GetClientPk() -> String {
     let msg = GetClientMsg();
     if (!msg.is_empty()) {
-        SetResponseStatus("success us pushed msg.".to_string())
+        SetResponseStatus("success us pushed msg.".to_string());
         msg
     } else {
         let mut v = client_pk.lock().unwrap().clone();
