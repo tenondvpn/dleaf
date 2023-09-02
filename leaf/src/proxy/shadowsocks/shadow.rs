@@ -191,7 +191,7 @@ where
                             }
                         }
 
-                        me.read_buf.clear();
+                        //me.read_buf.clear();
                     }
                     // ready to read plaintext payload into buf
                     me.read_state = ReadState::PendingData(n);
