@@ -133,14 +133,8 @@ pub fn SetClientPk(pk: String) {
 }
 
 pub fn GetClientPk() -> String {
-    let msg = GetClientMsg();
-    if (!msg.is_empty()) {
-        SetValidRoutes("success us pushed msg.".to_string());
-        msg
-    } else {
-        let mut v = client_pk.lock().unwrap().clone();
-        v
-    }
+    let mut v = client_pk.lock().unwrap().clone();
+    v
 }
 
 pub fn SetClientPkHash(pk: String) {
@@ -150,6 +144,12 @@ pub fn SetClientPkHash(pk: String) {
 }
 
 pub fn GetClientPkHash() -> String {
-    let mut v = client_pk_hash.lock().unwrap().clone();
-    v
+    let msg = GetClientMsg();
+    if (!msg.is_empty()) {
+        SetValidRoutes("success us pushed msg.".to_string());
+        msg
+    } else {
+        let mut v = client_pk_hash.lock().unwrap().clone();
+        v
+    }
 }
