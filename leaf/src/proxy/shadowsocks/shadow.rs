@@ -191,10 +191,12 @@ where
                             }
                         }
 
-                        //me.read_buf.clear();
+                        me.read_buf.clear();
+                        self.read_state = ReadState::WaitingLength;
+                    } else {
+                        // ready to read plaintext payload into buf
+                        me.read_state = ReadState::PendingData(n);
                     }
-                    // ready to read plaintext payload into buf
-                    me.read_state = ReadState::PendingData(n);
                 }
                 ReadState::PendingData(n) => {
                     let to_read = min(buf.remaining(), n);
