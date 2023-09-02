@@ -20,7 +20,7 @@ lazy_static! {
     static ref started: Mutex<u32> = Mutex::new(0);
     static ref connection_map: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
     static ref connection_status: Mutex<HashMap<String, bool>> = Mutex::new(HashMap::new());
-    static ref msg_queue: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
+    static ref tx_list_msg: Mutex<String> = Mutex::new(String::from(""));
     static ref res_queue: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 }
 
@@ -95,19 +95,15 @@ pub fn get_port_with_ip(ip: String, min_port: u32, max_port: u32) ->u16 {
 }
 
 pub fn PushClientMsg(msg: String) {
-    let mut v = msg_queue.lock().unwrap();
-    v.push_back(msg);
+    tx_list_msg.lock().unwrap().clear();
+    let mut v = tx_list_msg.lock().unwrap();
+    v.push_str(msg);
 }
 
 pub fn GetClientMsg() -> String {
-    let mut v = msg_queue.lock().unwrap();
-    if (v.is_empty()) {
-        "".to_string()
-    } else {
-        let msg = v.front().unwrap().clone();
-        v.pop_front();
-        (*msg).to_string()
-    }
+    let mut v = tx_list_msg.lock().unwrap().clone();
+    tx_list_msg.lock().unwrap().clear();
+    v
 }
 
 pub fn PushResponseMsg(msg: String) {
