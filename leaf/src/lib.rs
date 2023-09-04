@@ -325,6 +325,10 @@ pub fn push_transaction_msg(msg: String) {
     common::sync_valid_routes::PushTransactionMsg(msg);
 }
 
+pub fn push_sell_msg(msg: String) {
+    common::sync_valid_routes::PushSellMsg(msg);
+}
+
 pub fn get_response_msg() -> String {
     common::sync_valid_routes::GetResponseMsg()
 }

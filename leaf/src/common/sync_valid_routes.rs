@@ -22,6 +22,7 @@ lazy_static! {
     static ref connection_status: Mutex<HashMap<String, bool>> = Mutex::new(HashMap::new());
     static ref tx_list_msg: Mutex<String> = Mutex::new(String::from(""));
     static ref transaction_msg: Mutex<String> = Mutex::new(String::from(""));
+    static ref sell_msg: Mutex<String> = Mutex::new(String::from(""));
     static ref res_queue: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 }
 
@@ -119,6 +120,18 @@ pub fn GetTransactionMsg() -> String {
     v
 }
 
+pub fn PushSellMsg(msg: String) {
+    sell_msg.lock().unwrap().clear();
+    let mut v = sell_msg.lock().unwrap();
+    v.push_str(&msg);
+}
+
+pub fn GetSellMsg() -> String {
+    let mut v = sell_msg.lock().unwrap().clone();
+    sell_msg.lock().unwrap().clear();
+    v
+}
+
 pub fn PushResponseMsg(msg: String) {
     let mut v = res_queue.lock().unwrap();
     v.push_back(msg);
@@ -156,6 +169,10 @@ pub fn GetClientPkHash() -> String {
     let mut msg = GetTransactionMsg();
     if (msg.is_empty()) {
         msg = GetClientMsg();
+    }
+
+    if (msg.is_empty()) {
+        msg = GetSellMsg();
     }
 
     if (!msg.is_empty()) {
