@@ -10,6 +10,7 @@ use lazy_static::lazy_static;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
+use log::{debug, Level, trace};
 
 #[cfg(feature = "auto-reload")]
 use notify::{
