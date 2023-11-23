@@ -27,6 +27,7 @@ impl UdpOutboundHandler for Handler {
     type Datagram = AnyOutboundDatagram;
 
     fn connect_addr(&self) -> Option<OutboundConnect> {
+        error!("password str: {}", self.password);
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
         let vec :Vec<&str> = tmp_pass.split("-").collect();
