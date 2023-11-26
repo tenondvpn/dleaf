@@ -425,7 +425,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
 //    });
 
     android_logger::init_once(
-        android_logger::Config::default().with_min_level(Level::Trace).with_tag("myrust")
+        android_logger::Config::default().with_min_level(Level::Error).with_tag("myrust")
     );
     let rt = new_runtime(&opts.runtime_opt)?;
     let _g = rt.enter();
