@@ -74,7 +74,6 @@ impl TcpOutboundHandler for Handler {
             hasher.update(&tmp_pk_str.clone());
             let result = hasher.finish();
             let result_str = hex::encode(result);
-            error!("add response hash {} {}, pk: {}", address, result_str, hex::encode(tmp_pk_str));
             common::sync_valid_routes::SetResponseHash(address.clone(), result_str);
         }
         

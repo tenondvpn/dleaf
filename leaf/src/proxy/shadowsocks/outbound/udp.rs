@@ -27,7 +27,6 @@ impl UdpOutboundHandler for Handler {
     type Datagram = AnyOutboundDatagram;
 
     fn connect_addr(&self) -> Option<OutboundConnect> {
-        error!("password str: {}", self.password);
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
         let vec :Vec<&str> = tmp_pass.split("-").collect();
@@ -45,7 +44,6 @@ impl UdpOutboundHandler for Handler {
             port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
         }
 
-        error!("0 send to: {} {}", address, port);
         Some(OutboundConnect::Proxy(address.clone(), port))
     }
 
@@ -101,7 +99,6 @@ impl UdpOutboundHandler for Handler {
             _ => None,
         };
 
-        error!("1 send to: {} {}", address, port);
         Ok(Box::new(Datagram {
             dgram,
             socket,
@@ -205,23 +202,18 @@ pub struct DatagramSendHalf {
 #[async_trait]
 impl OutboundDatagramSendHalf for DatagramSendHalf {
     async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
-        error!("3 send to: {} {}", "address", "port");
         let mut buf2 = BytesMut::new();
         target.write_buf(&mut buf2, SocksAddrWireType::PortLast);
-        error!("4 0 send to: {} {}", self.vpn_ip, self.vpn_port);
         buf2.put_slice(buf);
         let ciphertext = self.dgram.encrypt(buf2).map_err(|_| shadow::crypto_err())?;
         let n2: u8 = thread_rng().gen_range(6..16);
 
         let addr = Ipv4Addr::from(self.vpn_ip);
         let ex_hash = common::sync_valid_routes::GetResponseHash(addr.to_string());
-        error!("4 1 send to address: {} ex_hash: {}  vpn_ip: {} port: {}", addr.to_string(), ex_hash, self.vpn_ip, self.vpn_port);
-
         if (ex_hash.eq("")) {
             panic!("error.");
         }
 
-        error!("4 2 send to: {} {}", self.vpn_ip, self.vpn_port);
         let decode_hash = hex::decode(ex_hash).expect("Decoding failed");
         let mut all_len = 32 + n2 + 1 + 32;
         let mut buffer1 = BytesMut::with_capacity(all_len as usize);
@@ -232,7 +224,6 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             head_size += 6;
         }
 
-        error!("4 send to: {} {}", self.vpn_ip, self.vpn_port);
         buffer1.put_u8(n2);
         let rand_string: String = thread_rng()
             .sample_iter(&Alphanumeric)
@@ -265,7 +256,6 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             i = i + 1;
         }
 
-        error!("5 send to: {} {}", self.vpn_ip, self.vpn_port);
         match self.send_half.send_to(&mut buffer, &self.server_addr).await {
             Ok(_) => Ok(buf.len()),
             Err(err) => Err(err),
