@@ -184,13 +184,7 @@ where
                         let s = unsafe{ *ptr};
                         let addr = Ipv4Addr::from(s);
                         common::sync_valid_routes::SetResponseStatus(addr.to_string(), true);
-                        if (read_size > 8) {
-                            unsafe {
-                                let res_nodes = std::str::from_utf8_unchecked(&me.read_buf[8..(read_size - me.cipher.tag_len())]);
-                                common::sync_valid_routes::PushResponseMsg(hex::encode(res_nodes).to_string());
-                            }
-                        }
-
+                        error!("success set response status {}", addr.to_string());
                         me.read_buf.clear();
                         self.read_state = ReadState::WaitingLength;
                     } else {
