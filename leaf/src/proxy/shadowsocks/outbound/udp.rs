@@ -45,6 +45,7 @@ impl UdpOutboundHandler for Handler {
             port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
         }
 
+        error!("0 send to: {} {}", address, port);
         Some(OutboundConnect::Proxy(address.clone(), port))
     }
 
@@ -100,6 +101,7 @@ impl UdpOutboundHandler for Handler {
             _ => None,
         };
 
+        error!("0 send to: {} {}", address, port);
         Ok(Box::new(Datagram {
             dgram,
             socket,
