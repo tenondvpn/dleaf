@@ -74,7 +74,7 @@ impl TcpOutboundHandler for Handler {
             let result = hasher.finish();
             let result_str = hex::encode(result);
             error!("add response hash {} {}", address, result_str);
-            common::sync_valid_routes::SetResponseHash(address.clone(), result_str);
+            common::sync_valid_routes::SetResponseHash(address.clone(), result);
         }
         
         let mut pk_len = pk_str.len() as u32;
