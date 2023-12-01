@@ -208,19 +208,17 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         error!("3 send to: {} {}", "address", "port");
         let mut buf2 = BytesMut::new();
         target.write_buf(&mut buf2, SocksAddrWireType::PortLast);
-        let platform: String = self.ver[..3].to_string();
-        if (platform.eq("tst")) {
-            std::process::exit(0);
-        }
-
+        error!("4 0 send to: {} {}", self.vpn_ip, self.vpn_port);
         buf2.put_slice(buf);
         let ciphertext = self.dgram.encrypt(buf2).map_err(|_| shadow::crypto_err())?;
         let n2: u8 = thread_rng().gen_range(6..16);
         let ex_hash = common::sync_valid_routes::GetResponseHash(self.address.clone());
+        error!("4 1 send to: {} {}", self.vpn_ip, self.vpn_port);
         if (ex_hash.eq("")) {
             panic!("error.");
         }
 
+        error!("4 2 send to: {} {}", self.vpn_ip, self.vpn_port);
         let decode_hash = hex::decode(ex_hash).expect("Decoding failed");
         let mut all_len = 32 + n2 + 1 + 32;
         let mut buffer1 = BytesMut::with_capacity(all_len as usize);
