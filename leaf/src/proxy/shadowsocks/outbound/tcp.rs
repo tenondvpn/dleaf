@@ -68,9 +68,9 @@ impl TcpOutboundHandler for Handler {
 
         let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
         if (ex_hash.eq("")) {
-            let mut test_str = hex::encode(pk_str.clone());
+            let tmp_pk_str = hex::decode(common::sync_valid_routes::GetClientPk()).expect("Decoding failed");
             let mut hasher = Sha256::new();
-            hasher.update(&pk_str.clone());
+            hasher.update(&tmp_pk_str.clone());
             let result = hasher.finish();
             let result_str = hex::encode(result);
             error!("add response hash {} {}", address, result_str);
