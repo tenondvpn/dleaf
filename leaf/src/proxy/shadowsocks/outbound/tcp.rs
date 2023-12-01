@@ -66,6 +66,16 @@ impl TcpOutboundHandler for Handler {
             pk_str = hex::decode(common::sync_valid_routes::GetClientPk()).expect("Decoding failed");
         }
 
+        let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
+        if (ex_hash.eq("")) {
+            let mut test_str = hex::encode(pk_str.clone());
+            let mut hasher = Sha256::new();
+            hasher.update(&pk_str.clone());
+            let result = hasher.finish();
+            let result_str = hex::encode(result);
+            common::sync_valid_routes::SetResponseHash(address.clone(), result_str);
+        }
+        
         let mut pk_len = pk_str.len() as u32;
         pk_len += 2;
         let mut n2: u8 = thread_rng().gen_range(7..16) % 16;
