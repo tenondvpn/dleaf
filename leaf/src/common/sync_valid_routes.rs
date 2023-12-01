@@ -18,7 +18,7 @@ lazy_static! {
     static ref client_pk: Mutex<String> = Mutex::new(String::from(""));
     static ref client_pk_hash: Mutex<String> = Mutex::new(String::from(""));
     static ref started: Mutex<u32> = Mutex::new(0);
-    static ref connection_map: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
+    static ref connection_map: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
     static ref connection_status: Mutex<HashMap<String, bool>> = Mutex::new(HashMap::new());
     static ref tx_list_msg: Mutex<String> = Mutex::new(String::from(""));
     static ref transaction_msg: Mutex<String> = Mutex::new(String::from(""));
@@ -51,12 +51,12 @@ pub fn GetVpnNodes() -> String {
     v
 }
 
-pub fn SetResponseHash(svr_add: u32, val: String) {
+pub fn SetResponseHash(svr_add: String, val: String) {
     let mut v = connection_map.lock().unwrap();
     v.insert(svr_add, val);
 }
 
-pub fn GetResponseHash(svr_add: u32) -> String {
+pub fn GetResponseHash(svr_add: String) -> String {
     let mut v = connection_map.lock().unwrap();
     let tmp = "".to_string();
     let val = v.get(&svr_add).unwrap_or(&tmp);
@@ -69,12 +69,12 @@ pub fn GetResponseHash(svr_add: u32) -> String {
     }
 }
 
-pub fn SetResponseStatus(svr_add: u32, val: bool) {
+pub fn SetResponseStatus(svr_add: String, val: bool) {
     let mut v = connection_status.lock().unwrap();
     v.insert(svr_add, val);
 }
 
-pub fn GetResponseStatus(svr_add: u32) -> bool {
+pub fn GetResponseStatus(svr_add: String) -> bool {
     let mut v = connection_status.lock().unwrap();
     let tmp : bool = false;
     let val = v.get(&svr_add).unwrap_or(&tmp);
