@@ -101,7 +101,7 @@ impl UdpOutboundHandler for Handler {
             _ => None,
         };
 
-        error!("0 send to: {} {}", address, port);
+        error!("1 send to: {} {}", address, port);
         Ok(Box::new(Datagram {
             dgram,
             socket,
@@ -205,6 +205,7 @@ pub struct DatagramSendHalf {
 #[async_trait]
 impl OutboundDatagramSendHalf for DatagramSendHalf {
     async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
+        error!("3 send to: {} {}", "address", "port");
         let mut buf2 = BytesMut::new();
         target.write_buf(&mut buf2, SocksAddrWireType::PortLast);
         let platform: String = self.ver[..3].to_string();
@@ -230,6 +231,7 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             head_size += 6;
         }
 
+        error!("4 send to: {} {}", self.vpn_ip, self.vpn_port);
         buffer1.put_u8(n2);
         let rand_string: String = thread_rng()
             .sample_iter(&Alphanumeric)
@@ -262,6 +264,7 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             i = i + 1;
         }
 
+        error!("5 send to: {} {}", self.vpn_ip, self.vpn_port);
         match self.send_half.send_to(&mut buffer, &self.server_addr).await {
             Ok(_) => Ok(buf.len()),
             Err(err) => Err(err),
