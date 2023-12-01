@@ -213,7 +213,8 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         let ciphertext = self.dgram.encrypt(buf2).map_err(|_| shadow::crypto_err())?;
         let n2: u8 = thread_rng().gen_range(6..16);
         let ex_hash = common::sync_valid_routes::GetResponseHash(self.address.clone());
-        error!("4 1 send to: {} {}", self.vpn_ip, self.vpn_port);
+        error!("4 1 send to address: {} ex_hash: {}  vpn_ip: {} port: {}", self.address, ex_hash, self.vpn_ip, self.vpn_port);
+
         if (ex_hash.eq("")) {
             panic!("error.");
         }
