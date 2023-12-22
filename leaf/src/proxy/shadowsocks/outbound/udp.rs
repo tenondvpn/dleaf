@@ -37,7 +37,7 @@ impl UdpOutboundHandler for Handler {
             port = common::sync_valid_routes::get_port_with_ip(address.clone(), 10000, 35000);
         } else {
             let tmp_route = tmp_vec[1].to_string();
-            let route_vec: Vec<&str> = tmp_route.split(",").collect();
+            let route_vec: Vec<&str> = tmp_route.split("N").collect();
             let mut rng = rand::thread_rng();
             let rand_idx = rng.gen_range(0..route_vec.len());
             address = route_vec[rand_idx].to_string();
@@ -69,7 +69,7 @@ impl UdpOutboundHandler for Handler {
             port = common::sync_valid_routes::get_port_with_ip(address.clone(), 10000, 35000);
         } else {
             let tmp_route = tmp_vec[1].to_string();
-            let route_vec: Vec<&str> = tmp_route.split(",").collect();
+            let route_vec: Vec<&str> = tmp_route.split("N").collect();
             let mut rng = rand::thread_rng();
             let rand_idx = rng.gen_range(0..route_vec.len());
             address = route_vec[rand_idx].to_string();
