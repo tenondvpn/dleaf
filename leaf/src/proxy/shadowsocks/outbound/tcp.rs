@@ -43,7 +43,8 @@ impl TcpOutboundHandler for Handler {
             let rand_idx = rng.gen_range(0..route_vec.len());
             address = route_vec[rand_idx].to_string();
             port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
-            debug!("connect tcp route {} {} rand: {}, len: {}, routes {}", address, port, rand_idx, route_vec.len(), tmp_route);
+            debug!("connect tcp route {} {} rand: {}, len: {}, routes {}, password {}",
+                address, port, rand_idx, route_vec.len(), tmp_route, self.password);
         }
 
         Some(OutboundConnect::Proxy(address.clone(), port))
