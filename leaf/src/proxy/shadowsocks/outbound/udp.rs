@@ -211,7 +211,7 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         let addr = Ipv4Addr::from(self.vpn_ip);
         let ex_hash = common::sync_valid_routes::GetResponseHash(addr.to_string());
         if (ex_hash.eq("")) {
-            panic!("error.");
+            error!("error.");
         }
 
         let decode_hash = hex::decode(ex_hash).expect("Decoding failed");

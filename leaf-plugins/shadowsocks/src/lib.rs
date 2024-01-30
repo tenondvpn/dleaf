@@ -44,13 +44,11 @@ pub fn add_handler_fn(registrar: &mut dyn PluginRegistrar, tag: &str, args: &str
         port = vec[2].parse::<u16>().unwrap();
     } else {
         let tmp_route = tmp_vec[1].to_string();
-        let route_vec: Vec<&str> = tmp_route.split("-").collect();
+        let route_vec: Vec<&str> = tmp_route.split("N").collect();
         let mut rng = rand::thread_rng();
         let rand_idx = rng.gen_range(0..route_vec.len());
-        let ip_port = route_vec[rand_idx].to_string();
-        let ip_port_vec: Vec<&str> = ip_port.split("N").collect();
-        address = ip_port_vec[0].to_string();
-        port: u16 = ip_port_vec[1].parse::<u16>().unwrap();
+        address = route_vec[rand_idx].to_string();
+        port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
     }
 
     registrar.add_handler(

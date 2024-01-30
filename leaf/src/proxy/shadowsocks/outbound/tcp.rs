@@ -43,10 +43,8 @@ impl TcpOutboundHandler for Handler {
             let rand_idx = rng.gen_range(0..route_vec.len());
             address = route_vec[rand_idx].to_string();
             port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
-            debug!("connect tcp route {} {} rand: {}, len: {}, routes {}, password {}",
-                address, port, rand_idx, route_vec.len(), tmp_route, self.password);
         }
-
+        
         Some(OutboundConnect::Proxy(address.clone(), port))
     }
 
@@ -150,12 +148,10 @@ impl TcpOutboundHandler for Handler {
         }
 
         if (buffer1[head_size] as u8 >= 16) {
-            common::sync_valid_routes::SetValidRoutes("DDDDDDDD-0".to_string());
             panic!("this is a terrible mistake!");
         }
 
         if buffer1.len() != all_len as usize {
-            common::sync_valid_routes::SetValidRoutes("DDDDDDDD-1".to_string());
             panic!("this is a terrible mistake!");
         }
 

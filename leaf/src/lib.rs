@@ -396,7 +396,6 @@ pub struct StartOptions {
 
 pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     common::sync_valid_routes::ClearAll();
-
     println!("start with options:\n{:#?}", opts);
 
     let (reload_tx, mut reload_rx) = mpsc::channel(1);
@@ -412,7 +411,6 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         Config::Str(s) => config::from_string(&s).map_err(Error::Config)?,
         Config::Internal(c) => c,
     };
-
     // FIXME Unfortunately fern does not allow re-initializing the logger,
     // should consider another logging lib if the situation doesn't change.
     let log = config
@@ -420,13 +418,14 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         .as_ref()
         .ok_or_else(|| Error::Config(anyhow!("empty log setting")))?;
     static ONCE: Once = Once::new();
-//    ONCE.call_once(move || {
-//        app::logger::setup_logger(log).expect("setup logger failed");
-//    });
+   ONCE.call_once(move || {
+       app::logger::setup_logger(log).expect("setup logger failed");
+   });
 
-    android_logger::init_once(
-        android_logger::Config::default().with_min_level(Level::Error).with_tag("myrust")
-    );
+
+    // android_logger::init_once(
+    //     android_logger::Config::default().with_min_level(Level::Error).with_tag("myrust")
+    // );
     let rt = new_runtime(&opts.runtime_opt)?;
     let _g = rt.enter();
 
@@ -454,6 +453,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         #[cfg(feature = "stat")]
         stat_manager.clone(),
     ));
+
     let nat_manager = Arc::new(NatManager::new(dispatcher.clone()));
     let inbound_manager =
         InboundManager::new(&config.inbounds, dispatcher, nat_manager).map_err(Error::Config)?;
@@ -468,6 +468,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     } else {
         sys::NetInfo::default()
     };
+
 
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
     {

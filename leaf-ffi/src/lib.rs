@@ -106,6 +106,35 @@ pub extern "C" fn leaf_run(rt_id: u16, config_path: *const c_char) -> i32 {
     }
 }
 
+#[no_mangle]
+pub extern "C" fn get_status() -> *mut c_char{
+    let c_str_song = std::ffi::CString::new(leaf::get_status()).unwrap();
+    c_str_song.into_raw()
+    //std::ffi::CString::new(leaf::get_status().as_str()).unwrap().as_ptr();
+}
+
+#[no_mangle]
+pub extern "C" fn free_status(s: *mut c_char) {
+    unsafe {
+        if s.is_null() { return }
+        std::ffi::CString::from_raw(s)
+    };
+}
+
+#[no_mangle]
+pub extern "C" fn set_pk(s: *const c_char) {
+    if let Ok(pk_str) = unsafe { CStr::from_ptr(s).to_str() } {
+        leaf::set_pk(pk_str.to_string());
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn set_pk_hash(s: *const c_char) {
+    if let Ok(pk_hash) = unsafe { CStr::from_ptr(s).to_str() } {
+        leaf::set_pk_hash(pk_hash.to_string());
+    }
+}
+
 /// Reloads DNS servers, outbounds and routing rules from the config file.
 ///
 /// @param rt_id The ID of the leaf instance to reload.
