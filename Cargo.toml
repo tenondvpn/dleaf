@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "leaf",
+    "leaf-android",
     "leaf-bin",
     "leaf-ffi",
     "leaf-plugins/shadowsocks",

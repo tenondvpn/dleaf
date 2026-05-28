@@ -14,8 +14,7 @@ lib:
 	cargo build -p leaf-ffi --release
 	cbindgen --config leaf-ffi/cbindgen.toml leaf-ffi/src/lib.rs > target/release/leaf.h
 android:
-	cargo ndk -t armeabi-v7a -t x86 -t x86_64 -t arm64-v8a build --release -p leaf-ffi
-	cbindgen --config leaf-ffi/cbindgen.toml leaf-ffi/src/lib.rs > target/universal/release/leaf.h
+	cargo ndk -t armeabi-v7a -t x86 -t x86_64 -t arm64-v8a build --release -p leaf-android
 lib-dev:
 	cargo build -p leaf-ffi
 	cbindgen --config leaf-ffi/cbindgen.toml leaf-ffi/src/lib.rs > target/debug/leaf.h

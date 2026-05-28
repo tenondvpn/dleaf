@@ -1,0 +1,29 @@
+[package]
+name = "leaf-android"
+version = "0.1.0"
+authors = ["ghost <noreply>"]
+edition = "2021"
+
+[lib]
+name = "leafandroid"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[features]
+default = [
+    "leaf/default-openssl",
+]
+
+default-ring = [
+    "leaf/default-ring",
+]
+
+default-openssl = [
+    "leaf/default-openssl",
+]
+
+auto-reload = ["leaf/auto-reload"]
+
+[dependencies]
+leaf = { path = "../leaf", default-features = false }
+jni = { version = "0.19", default-features = false }
