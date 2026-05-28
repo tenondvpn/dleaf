@@ -1,4 +1,5 @@
 use std::{cmp::min, convert::TryFrom, io, sync::Arc};
+use std::net::Ipv4Addr;
 extern crate rand;
 use rand::Rng;
 use async_trait::async_trait;
@@ -21,6 +22,42 @@ pub struct Handler {
     pub password: String,
 }
 
+fn pick_route_address(tmp_vec: &[&str]) -> Option<String> {
+    let route_vec: Vec<&str> = tmp_vec
+        .get(1)
+        .map(|routes| routes.split("N").filter(|route| !route.is_empty()).collect())
+        .unwrap_or_else(Vec::new);
+
+    if route_vec.is_empty() {
+        None
+    } else {
+        let mut rng = rand::thread_rng();
+        let rand_idx = rng.gen_range(0..route_vec.len());
+        Some(route_vec[rand_idx].to_string())
+    }
+}
+
+fn connect_via_vpn_server(vec: &[&str], route_address: &Option<String>) -> bool {
+    route_address.is_none() || (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0)
+}
+
+fn select_connect_addr(vec: &[&str], tmp_vec: &[&str]) -> (String, u16, bool) {
+    let route_address = pick_route_address(tmp_vec);
+    let use_vpn_server = connect_via_vpn_server(vec, &route_address);
+    let address = if use_vpn_server {
+        vec[1].to_string()
+    } else {
+        route_address.unwrap()
+    };
+    let port = if use_vpn_server {
+        common::sync_valid_routes::get_port_with_ip(address.clone(), 10000, 35000)
+    } else {
+        common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000)
+    };
+
+    (address, port, use_vpn_server)
+}
+
 #[async_trait]
 impl UdpOutboundHandler for Handler {
     type UStream = AnyStream;
@@ -30,19 +67,7 @@ impl UdpOutboundHandler for Handler {
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
         let vec :Vec<&str> = tmp_pass.split("-").collect();
-        let mut address = "".to_string();
-        let mut port: u16 = 0;
-        if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
-            address = vec[1].to_string();
-            port = common::sync_valid_routes::get_port_with_ip(address.clone(), 10000, 35000);
-        } else {
-            let tmp_route = tmp_vec[1].to_string();
-            let route_vec: Vec<&str> = tmp_route.split("N").collect();
-            let mut rng = rand::thread_rng();
-            let rand_idx = rng.gen_range(0..route_vec.len());
-            address = route_vec[rand_idx].to_string();
-            port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
-        }
+        let (address, port, _) = select_connect_addr(&vec, &tmp_vec);
 
         Some(OutboundConnect::Proxy(address.clone(), port))
     }
@@ -59,21 +84,12 @@ impl UdpOutboundHandler for Handler {
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
         let vec :Vec<&str> = tmp_pass.split("-").collect();
-        let mut address = "".to_string();
-        let mut port: u16 = 0;
+        let (address, port, use_vpn_server) = select_connect_addr(&vec, &tmp_vec);
         let mut tmp_vpn_ip = 0;
         let mut tmp_vpn_port = vec[2].parse::<u16>().unwrap();
-        if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
+        if (use_vpn_server) {
             tmp_vpn_port = 0;
-            address = vec[1].to_string();
-            port = common::sync_valid_routes::get_port_with_ip(address.clone(), 10000, 35000);
         } else {
-            let tmp_route = tmp_vec[1].to_string();
-            let route_vec: Vec<&str> = tmp_route.split("N").collect();
-            let mut rng = rand::thread_rng();
-            let rand_idx = rng.gen_range(0..route_vec.len());
-            address = route_vec[rand_idx].to_string();
-            port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
             let addr: Ipv4Addr = vec[1].to_string().parse().unwrap();
             tmp_vpn_ip = addr.into();
             tmp_vpn_port = common::sync_valid_routes::get_port_with_ip(vec[1].to_string(), 10000, 35000);
@@ -208,8 +224,12 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         let ciphertext = self.dgram.encrypt(buf2).map_err(|_| shadow::crypto_err())?;
         let n2: u8 = thread_rng().gen_range(6..16);
 
-        let addr = Ipv4Addr::from(self.vpn_ip);
-        let ex_hash = common::sync_valid_routes::GetResponseHash(addr.to_string());
+        let hash_address = if self.vpn_port != 0 {
+            Ipv4Addr::from(self.vpn_ip).to_string()
+        } else {
+            self.address.clone()
+        };
+        let ex_hash = common::sync_valid_routes::GetResponseHash(hash_address);
         if (ex_hash.eq("")) {
             error!("error.");
         }

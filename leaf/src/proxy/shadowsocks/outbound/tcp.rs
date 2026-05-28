@@ -24,6 +24,42 @@ pub struct Handler {
     pub password: String,
 }
 
+fn pick_route_address(tmp_vec: &[&str]) -> Option<String> {
+    let route_vec: Vec<&str> = tmp_vec
+        .get(1)
+        .map(|routes| routes.split("N").filter(|route| !route.is_empty()).collect())
+        .unwrap_or_else(Vec::new);
+
+    if route_vec.is_empty() {
+        None
+    } else {
+        let mut rng = rand::thread_rng();
+        let rand_idx = rng.gen_range(0..route_vec.len());
+        Some(route_vec[rand_idx].to_string())
+    }
+}
+
+fn connect_via_vpn_server(vec: &[&str], route_address: &Option<String>) -> bool {
+    route_address.is_none() || (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0)
+}
+
+fn select_connect_addr(vec: &[&str], tmp_vec: &[&str]) -> (String, u16, bool) {
+    let route_address = pick_route_address(tmp_vec);
+    let use_vpn_server = connect_via_vpn_server(vec, &route_address);
+    let address = if use_vpn_server {
+        vec[1].to_string()
+    } else {
+        route_address.unwrap()
+    };
+    let port = if use_vpn_server {
+        common::sync_valid_routes::get_port_with_ip(address.clone(), 10000, 35000)
+    } else {
+        common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000)
+    };
+
+    (address, port, use_vpn_server)
+}
+
 #[async_trait]
 impl TcpOutboundHandler for Handler {
     type Stream = AnyStream;
@@ -31,19 +67,7 @@ impl TcpOutboundHandler for Handler {
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
         let vec :Vec<&str> = tmp_pass.split("-").collect();
-        let mut address = "".to_string();
-        let mut port: u16 = 0;
-        if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
-            address = vec[1].to_string();
-            port = common::sync_valid_routes::get_port_with_ip(address.clone(), 10000, 35000);
-        } else {
-            let tmp_route = tmp_vec[1].to_string();
-            let route_vec: Vec<&str> = tmp_route.split("N").collect();
-            let mut rng = rand::thread_rng();
-            let rand_idx = rng.gen_range(0..route_vec.len());
-            address = route_vec[rand_idx].to_string();
-            port = common::sync_valid_routes::get_port_with_ip(address.clone(), 35000, 65000);
-        }
+        let (address, port, _) = select_connect_addr(&vec, &tmp_vec);
         
         Some(OutboundConnect::Proxy(address.clone(), port))
     }
@@ -59,6 +83,7 @@ impl TcpOutboundHandler for Handler {
         let vec :Vec<&str> = tmp_pass.split("-").collect(); 
         let tmp_ps = vec[0].to_string();
         let address = vec[1].to_string();
+        let (_, _, use_vpn_server) = select_connect_addr(&vec, &tmp_vec);
         let mut pk_str : Vec<u8>;
         if (common::sync_valid_routes::GetResponseStatus(address.clone())) {
             pk_str = hex::decode(common::sync_valid_routes::GetClientPkHash()).expect("Decoding failed");
@@ -87,13 +112,13 @@ impl TcpOutboundHandler for Handler {
         let rand_len = n2 as u32;
         // route ip and port: 6 bytes, rand_len: 1byte, pk len: 2byte
         let mut all_len = 7 + rand_len + pk_len;
-        if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0) {
+        if (use_vpn_server) {
             all_len -= 6;
         }
 
         let mut buffer1 = BytesMut::with_capacity(all_len as usize);
         let mut head_size = 0;
-        if (vec.len() >= 8) {
+        if (!use_vpn_server && vec.len() >= 8) {
             if (vec[7].parse::<u32>().unwrap() == 0) {
                 let ex_r_ip = vec[5].parse::<u32>().unwrap();
                 if (ex_r_ip != 0) {
@@ -101,12 +126,7 @@ impl TcpOutboundHandler for Handler {
                     head_size += 6;
                     buffer1 = BytesMut::with_capacity(all_len as usize);
 
-                    let tmp_vec: Vec<&str> = self.password.split("M").collect();
-                    let tmp_route = tmp_vec[1].to_string();
-                    let route_vec: Vec<&str> = tmp_route.split("N").collect();
-                    let mut rng = rand::thread_rng();
-                    let rand_idx = rng.gen_range(0..route_vec.len());
-                    let ex_address = route_vec[rand_idx].to_string();
+                    let ex_address = pick_route_address(&tmp_vec).unwrap();
                     let port = common::sync_valid_routes::get_port_with_ip(ex_address.clone(), 35000, 65000);
 
                     let addr : Ipv4Addr = ex_address.clone().parse().unwrap();
@@ -117,7 +137,7 @@ impl TcpOutboundHandler for Handler {
             }
         }
 
-        if (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() == 0) {
+        if (!use_vpn_server && vec.len() >= 8 && vec[7].parse::<u32>().unwrap() == 0) {
             let addr: Ipv4Addr = vec[1].to_string().parse().unwrap();
             let addr_u32: u32 = addr.into();
             let vpn_port = common::sync_valid_routes::get_port_with_ip(vec[1].to_string(), 10000, 35000);
