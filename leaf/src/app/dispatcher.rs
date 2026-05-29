@@ -35,7 +35,7 @@ fn log_request(
             Network::Tcp => colored::Color::Blue,
             Network::Udp => colored::Color::Yellow,
         };
-        info!(
+        debug!(
             "[{}] [{}] [{}] [{}] {}",
             &sess.inbound_tag,
             sess.network.to_string().color(network_color),
@@ -44,7 +44,7 @@ fn log_request(
             &sess.destination,
         );
     } else {
-        info!(
+        debug!(
             "[{}] [{}] [{}] [{}] {}",
             sess.network, &sess.inbound_tag, outbound_tag, hs, &sess.destination,
         );
