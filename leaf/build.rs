@@ -42,10 +42,21 @@ fn generate_mobile_bindings() {
         .expect("Couldn't write bindings!");
 }
 
+fn build_mobile_logger() {
+    println!("cargo:rerun-if-changed=src/mobile/ios_logger.m");
+    cc::Build::new()
+        .file("src/mobile/ios_logger.m")
+        .flag("-fobjc-arc")
+        .compile("leaf_mobile_logger");
+}
+
 fn main() {
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     if os == "ios" || os == "macos" || os == "android" {
         generate_mobile_bindings();
+    }
+    if os == "ios" || os == "macos" {
+        build_mobile_logger();
     }
 
     if env::var("PROTO_GEN").is_ok() {

@@ -1,6 +1,9 @@
 [toolchain]
-channel = "1.77.2"
+channel = "stable"
 targets = [
+    "aarch64-apple-ios",
+    "aarch64-apple-ios-sim",
+    "x86_64-apple-ios",
     "armv7-linux-androideabi",
     "i686-linux-android",
     "x86_64-linux-android",

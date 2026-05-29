@@ -1,10 +1,8 @@
 ios:
-	cargo lipo --release -p leaf-ffi
-	cbindgen --config leaf-ffi/cbindgen.toml leaf-ffi/src/lib.rs > target/universal/release/leaf.h
+	./ios.sh release
 
 ios-dev:
-	cargo lipo -p leaf-ffi
-	cbindgen --config leaf-ffi/cbindgen.toml leaf-ffi/src/lib.rs > target/universal/debug/leaf.h
+	./ios.sh debug
 
 ios-opt:
 	cargo lipo --release --targets aarch64-apple-ios --manifest-path leaf-ffi/Cargo.toml --no-default-features --features "default-openssl"

@@ -2,7 +2,7 @@ use std::ffi::CString;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures::future::select_ok;
@@ -410,6 +410,7 @@ fn apply_socket_opts<S: AsRawSocket>(socket: &S) -> io::Result<()> {
 
 // A single TCP dial.
 async fn tcp_dial_task(dial_addr: SocketAddr) -> io::Result<(AnyStream, SocketAddr)> {
+    let dial_start = Instant::now();
     let socket = match dial_addr {
         SocketAddr::V4(..) => TcpSocket::new_v4()?,
         SocketAddr::V6(..) => TcpSocket::new_v6()?,
@@ -420,16 +421,39 @@ async fn tcp_dial_task(dial_addr: SocketAddr) -> io::Result<(AnyStream, SocketAd
     #[cfg(target_os = "android")]
     protect_socket(socket.as_raw_fd()).await?;
 
-    trace!("tcp dialing {}", &dial_addr);
+    info!("[LEAF-PERF][PROXY][TCP] dial begin {}", &dial_addr);
     let stream = timeout(
         Duration::from_secs(*option::OUTBOUND_DIAL_TIMEOUT),
         socket.connect(dial_addr),
     )
-    .await??;
+    .await
+    .map_err(|e| {
+        info!(
+            "[LEAF-PERF][PROXY][TCP] dial timeout {} in {}ms: {}",
+            &dial_addr,
+            dial_start.elapsed().as_millis(),
+            e
+        );
+        e
+    })?
+    .map_err(|e| {
+        info!(
+            "[LEAF-PERF][PROXY][TCP] dial failed {} in {}ms: {}",
+            &dial_addr,
+            dial_start.elapsed().as_millis(),
+            e
+        );
+        e
+    })?;
 
     apply_socket_opts(&stream)?;
 
-    trace!("tcp connected {} <-> {}", stream.local_addr()?, &dial_addr);
+    info!(
+        "[LEAF-PERF][PROXY][TCP] dial connected {} <-> {} in {}ms",
+        stream.local_addr()?,
+        &dial_addr,
+        dial_start.elapsed().as_millis()
+    );
     Ok((Box::new(stream), dial_addr))
 }
 
@@ -438,18 +462,27 @@ pub async fn connect_tcp_outbound(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyStream>> {
+    info!(
+        "[LEAF-PERF][PROXY][TCP] connect outbound handler={} destination={}",
+        handler.tag(),
+        sess.destination
+    );
     match TcpOutboundHandler::connect_addr(handler.as_ref()) {
         Some(OutboundConnect::Proxy(addr, port)) => {
+            info!("[LEAF-PERF][PROXY][TCP] proxy connect {}:{}", addr, port);
             Ok(Some(new_tcp_stream(dns_client, &addr, &port).await?))
         }
-        Some(OutboundConnect::Direct) => Ok(Some(
-            new_tcp_stream(
-                dns_client,
-                &sess.destination.host(),
-                &sess.destination.port(),
-            )
-            .await?,
-        )),
+        Some(OutboundConnect::Direct) => {
+            info!("[LEAF-PERF][PROXY][TCP] direct connect {}", sess.destination);
+            Ok(Some(
+                new_tcp_stream(
+                    dns_client,
+                    &sess.destination.host(),
+                    &sess.destination.port(),
+                )
+                .await?,
+            ))
+        }
         Some(OutboundConnect::NoConnect) | None => Ok(None),
     }
 }
@@ -459,16 +492,28 @@ pub async fn connect_udp_outbound(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyOutboundTransport>> {
+    info!(
+        "[LEAF-PERF][PROXY][UDP] connect outbound handler={} destination={}",
+        handler.tag(),
+        sess.destination
+    );
     match UdpOutboundHandler::connect_addr(handler.as_ref()) {
         Some(OutboundConnect::Proxy(addr, port)) => {
             match UdpOutboundHandler::transport_type(handler.as_ref()) {
                 DatagramTransportType::Datagram => {
+                    info!(
+                        "[LEAF-PERF][PROXY][UDP] proxy datagram socket source={} proxy={}:{}",
+                        sess.source,
+                        addr,
+                        port
+                    );
                     let socket = new_udp_socket(&sess.source).await?;
                     Ok(Some(OutboundTransport::Datagram(Box::new(
                         SimpleOutboundDatagram::new(socket, None, dns_client.clone()),
                     ))))
                 }
                 DatagramTransportType::Stream => {
+                    info!("[LEAF-PERF][PROXY][UDP] proxy stream connect {}:{}", addr, port);
                     let stream = new_tcp_stream(dns_client.clone(), &addr, &port).await?;
                     Ok(Some(OutboundTransport::Stream(stream)))
                 }
@@ -476,6 +521,7 @@ pub async fn connect_udp_outbound(
             }
         }
         Some(OutboundConnect::Direct) => {
+            info!("[LEAF-PERF][PROXY][UDP] direct socket source={}", sess.source);
             let socket = new_udp_socket(&sess.source).await?;
             let dest = match &sess.destination {
                 SocksAddr::Domain(domain, port) => {
@@ -497,14 +543,29 @@ pub async fn new_tcp_stream(
     address: &String,
     port: &u16,
 ) -> io::Result<AnyStream> {
+    let resolve_start = Instant::now();
+    info!("[LEAF-PERF][PROXY][TCP] resolve begin {}:{}", address, port);
     let mut resolver = Resolver::new(dns_client.clone(), address, port)
         .map_err(|e| {
+            info!(
+                "[LEAF-PERF][PROXY][TCP] resolve failed {}:{} in {}ms: {}",
+                address,
+                port,
+                resolve_start.elapsed().as_millis(),
+                e
+            );
             io::Error::new(
                 io::ErrorKind::Other,
                 format!("resolve address failed: {}", e),
             )
         })
         .await?;
+    info!(
+        "[LEAF-PERF][PROXY][TCP] resolve ready {}:{} in {}ms",
+        address,
+        port,
+        resolve_start.elapsed().as_millis()
+    );
 
     let mut last_err = None;
 
@@ -526,12 +587,25 @@ pub async fn new_tcp_stream(
         if !tasks.is_empty() {
             match select_ok(tasks.into_iter()).await {
                 Ok(v) => {
+                    info!(
+                        "[LEAF-PERF][PROXY][TCP] connect selected {}:{} in {}ms",
+                        address,
+                        port,
+                        resolve_start.elapsed().as_millis()
+                    );
                     #[rustfmt::skip]
                     dns_client.read().await.optimize_cache(address.to_owned(), v.0.1.ip()).await;
                     #[rustfmt::skip]
                     return Ok(v.0.0);
                 }
                 Err(e) => {
+                    info!(
+                        "[LEAF-PERF][PROXY][TCP] connect batch failed {}:{} in {}ms: {}",
+                        address,
+                        port,
+                        resolve_start.elapsed().as_millis(),
+                        e
+                    );
                     last_err = Some(io::Error::new(
                         io::ErrorKind::Other,
                         format!("all attempts failed, last error: {}", e),

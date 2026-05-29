@@ -1,5 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use futures::{sink::SinkExt, stream::StreamExt};
@@ -13,6 +14,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::channel as tokio_channel;
 use tokio::sync::mpsc::{Receiver as TokioReceiver, Sender as TokioSender};
 use tokio::sync::Semaphore;
+use tokio::time::Instant;
 use tun;
 use tun::AbstractDevice;
 
@@ -187,6 +189,7 @@ async fn handle_inbound_stream(
     dispatcher: Arc<Dispatcher>,
     fakedns: Arc<FakeDns>,
 ) {
+    let flow_start = Instant::now();
     let mut sess = Session {
         network: Network::Tcp,
         source: local_addr,
@@ -196,10 +199,10 @@ async fn handle_inbound_stream(
         ..Default::default()
     };
     // Whether to override the destination according to Fake DNS.
-    log::debug!("TUN TCP connection: {} -> {}", local_addr, remote_addr);
+    log::info!("[LEAF-PERF][TUN][TCP] accepted {} -> {}", local_addr, remote_addr);
     if is_unproxyable_tun_ip(remote_addr.ip()) {
-        log::debug!(
-            "Dropping unproxyable TUN TCP connection: {} -> {}",
+        log::info!(
+            "[LEAF-PERF][TUN][TCP] drop unproxyable {} -> {}",
             local_addr,
             remote_addr
         );
@@ -208,13 +211,19 @@ async fn handle_inbound_stream(
     if fakedns.is_fake_ip(&remote_addr.ip()).await {
         if let Some(domain) = fakedns.query_domain(&remote_addr.ip()).await {
             if domain.is_empty() {
-                log::debug!(
-                    "Dropping TUN TCP connection with empty fake DNS domain: {} -> {}",
+                log::info!(
+                    "[LEAF-PERF][TUN][TCP] drop empty fake dns domain {} -> {}",
                     local_addr,
                     remote_addr
                 );
                 return;
             }
+            log::info!(
+                "[LEAF-PERF][TUN][TCP] fake dns {} -> {} in {}ms",
+                remote_addr.ip(),
+                domain,
+                flow_start.elapsed().as_millis()
+            );
             sess.destination = SocksAddr::Domain(domain, remote_addr.port());
         } else {
             // Although requests targeting fake IPs are assumed
@@ -223,15 +232,27 @@ async fn handle_inbound_stream(
             // still have a chance to sniff the request domain
             // for TLS traffic in dispatcher.
             if remote_addr.port() != 443 {
-                log::debug!(
-                    "No paired domain found for this fake IP: {}, connection is rejected.",
+                log::info!(
+                    "[LEAF-PERF][TUN][TCP] reject fake ip without domain {}",
                     &remote_addr.ip()
                 );
                 return;
             }
         }
     }
+    log::info!(
+        "[LEAF-PERF][TUN][TCP] dispatch begin {} -> {} after {}ms",
+        local_addr,
+        sess.destination,
+        flow_start.elapsed().as_millis()
+    );
     dispatcher.dispatch_tcp(sess, stream).await;
+    log::info!(
+        "[LEAF-PERF][TUN][TCP] dispatch end {} -> {} total={}ms",
+        local_addr,
+        remote_addr,
+        flow_start.elapsed().as_millis()
+    );
 }
 
 async fn handle_inbound_datagram(
@@ -251,7 +272,12 @@ async fn handle_inbound_datagram(
     let fakedns_cloned = fakedns.clone();
     let ls_cloned = ls.clone();
     tokio::spawn(async move {
+        let mut downlink_count: u64 = 0;
+        let mut downlink_bytes: u64 = 0;
+        let mut last_report = Instant::now();
         while let Some(pkt) = l_rx.recv().await {
+            downlink_count += 1;
+            downlink_bytes += pkt.data.len() as u64;
             let src_addr = match pkt.src_addr {
                 SocksAddr::Ip(a) => a,
                 SocksAddr::Domain(domain, port) => {
@@ -266,27 +292,64 @@ async fn handle_inbound_datagram(
                     }
                 }
             };
+            let dst_addr_for_log = pkt.dst_addr.clone();
             if let Err(e) = ls_cloned.send_to(&pkt.data[..], &src_addr, &pkt.dst_addr.must_ip()) {
-                warn!("A packet failed to send to the netstack: {}", e);
+                warn!("[LEAF-PERF][TUN][UDP] send downlink to netstack failed: {}", e);
+            }
+            if last_report.elapsed() >= Duration::from_secs(2) {
+                info!(
+                    "[LEAF-PERF][TUN][UDP] downlink packets={} bytes={} last_src={} last_dst={}",
+                    downlink_count,
+                    downlink_bytes,
+                    src_addr,
+                    dst_addr_for_log
+                );
+                downlink_count = 0;
+                downlink_bytes = 0;
+                last_report = Instant::now();
             }
         }
     });
 
     // Accept datagrams from netstack and send to NAT manager.
+    let mut uplink_count: u64 = 0;
+    let mut uplink_bytes: u64 = 0;
+    let mut last_uplink_report = Instant::now();
     loop {
         match lr.recv_from().await {
             Err(e) => {
-                log::warn!("Failed to accept a datagram from netstack: {}", e);
+                log::warn!("[LEAF-PERF][TUN][UDP] recv from netstack failed: {}", e);
             }
             Ok((data, src_addr, dst_addr)) => {
+                uplink_count += 1;
+                uplink_bytes += data.len() as u64;
+                if last_uplink_report.elapsed() >= Duration::from_secs(2) {
+                    info!(
+                        "[LEAF-PERF][TUN][UDP] uplink packets={} bytes={} last_src={} last_dst={}",
+                        uplink_count,
+                        uplink_bytes,
+                        src_addr,
+                        dst_addr
+                    );
+                    uplink_count = 0;
+                    uplink_bytes = 0;
+                    last_uplink_report = Instant::now();
+                }
                 // Fake DNS logic.
                 if dst_addr.port() == 53 {
-                    log::debug!("TUN UDP DNS packet: {} -> {}", src_addr, dst_addr);
+                    let dns_start = Instant::now();
+                    log::info!("[LEAF-PERF][TUN][UDP][DNS] fake dns packet {} -> {}", src_addr, dst_addr);
                     match fakedns.generate_fake_response(&data).await {
                         Ok(resp) => {
                             if let Err(e) = ls.send_to(resp.as_ref(), &dst_addr, &src_addr) {
-                                warn!("A packet failed to send to the netstack: {}", e);
+                                warn!("[LEAF-PERF][TUN][UDP][DNS] send fake response failed: {}", e);
                             }
+                            info!(
+                                "[LEAF-PERF][TUN][UDP][DNS] fake response done {} -> {} in {}ms",
+                                src_addr,
+                                dst_addr,
+                                dns_start.elapsed().as_millis()
+                            );
                             continue;
                         }
                         Err(err) => {
@@ -308,8 +371,8 @@ async fn handle_inbound_datagram(
                 // with domain name destination, leaf itself of course supports
                 // this feature very well.
                 if is_unproxyable_tun_ip(dst_addr.ip()) {
-                    log::debug!(
-                        "Dropping unproxyable TUN UDP datagram: {} -> {}",
+                    log::info!(
+                        "[LEAF-PERF][TUN][UDP] drop unproxyable {} -> {}",
                         src_addr,
                         dst_addr
                     );
@@ -318,10 +381,15 @@ async fn handle_inbound_datagram(
 
                 let dst_addr = if fakedns.is_fake_ip(&dst_addr.ip()).await {
                     if let Some(domain) = fakedns.query_domain(&dst_addr.ip()).await {
+                        info!(
+                            "[LEAF-PERF][TUN][UDP] fake dns {} -> {}",
+                            dst_addr.ip(),
+                            domain
+                        );
                         SocksAddr::Domain(domain, dst_addr.port())
                     } else {
-                        log::debug!(
-                            "No paired domain found for this fake IP: {}, datagram is rejected.",
+                        log::info!(
+                            "[LEAF-PERF][TUN][UDP] reject fake ip without domain {}",
                             &dst_addr.ip()
                         );
                         continue;
@@ -331,8 +399,8 @@ async fn handle_inbound_datagram(
                 };
 
                 if is_unproxyable_tun_destination(&dst_addr) {
-                    log::debug!(
-                        "Dropping unproxyable TUN UDP datagram: {} -> {}",
+                    log::info!(
+                        "[LEAF-PERF][TUN][UDP] drop unproxyable destination {} -> {}",
                         src_addr,
                         dst_addr
                     );
@@ -356,6 +424,16 @@ pub fn new(
 ) -> Result<Runner> {
     let settings = TunInboundSettings::parse_from_bytes(&inbound.settings)?;
     let can_use_prewarmed_windows_tun = settings.fd < 0 && settings.auto;
+    info!(
+        "[LEAF-PERF][TUN] config fd={} auto={} mtu={} name={} address={} gateway={} netmask={}",
+        settings.fd,
+        settings.auto,
+        settings.mtu,
+        settings.name,
+        settings.address,
+        settings.gateway,
+        settings.netmask
+    );
 
     let mut cfg = tun::Configuration::default();
     if settings.fd >= 0 {
@@ -448,18 +526,56 @@ pub fn new(
 
         // Reads packet from stack and sends to TUN.
         futs.push(Box::pin(async move {
+            let mut pkt_count: u64 = 0;
+            let mut byte_count: u64 = 0;
+            let mut last_report = Instant::now();
             while let Some(pkt) = stack_stream.next().await {
                 if let Ok(pkt) = pkt {
-                    tun_sink.send(pkt).await.unwrap();
+                    pkt_count += 1;
+                    byte_count += pkt.len() as u64;
+                    let pkt_len = pkt.len();
+                    if let Err(e) = tun_sink.send(pkt).await {
+                        warn!("[LEAF-PERF][TUN] stack->tun send failed after {} bytes pkt: {}", pkt_len, e);
+                        break;
+                    }
+                    if last_report.elapsed() >= Duration::from_secs(2) {
+                        info!(
+                            "[LEAF-PERF][TUN] stack->tun packets={} bytes={}",
+                            pkt_count,
+                            byte_count
+                        );
+                        pkt_count = 0;
+                        byte_count = 0;
+                        last_report = Instant::now();
+                    }
                 }
             }
         }));
 
         // Reads packet from TUN and sends to stack.
         futs.push(Box::pin(async move {
+            let mut pkt_count: u64 = 0;
+            let mut byte_count: u64 = 0;
+            let mut last_report = Instant::now();
             while let Some(pkt) = tun_stream.next().await {
                 if let Ok(pkt) = pkt {
-                    stack_sink.send(pkt).await.unwrap();
+                    pkt_count += 1;
+                    byte_count += pkt.len() as u64;
+                    let pkt_len = pkt.len();
+                    if let Err(e) = stack_sink.send(pkt).await {
+                        warn!("[LEAF-PERF][TUN] tun->stack send failed after {} bytes pkt: {}", pkt_len, e);
+                        break;
+                    }
+                    if last_report.elapsed() >= Duration::from_secs(2) {
+                        info!(
+                            "[LEAF-PERF][TUN] tun->stack packets={} bytes={}",
+                            pkt_count,
+                            byte_count
+                        );
+                        pkt_count = 0;
+                        byte_count = 0;
+                        last_report = Instant::now();
+                    }
                 }
             }
         }));
@@ -471,11 +587,12 @@ pub fn new(
         futs.push(Box::pin(async move {
             let tcp_slots = Arc::new(Semaphore::new(*option::TUN_TCP_CONCURRENCY));
             while let Some((stream, local_addr, remote_addr)) = tcp_listener.next().await {
+                info!("[LEAF-PERF][TUN][TCP] listener got {} -> {}", local_addr, remote_addr);
                 let permit = match tcp_slots.clone().try_acquire_owned() {
                     Ok(permit) => permit,
                     Err(_) => {
                         log::warn!(
-                            "TUN TCP concurrency full, closing {} -> {}",
+                            "[LEAF-PERF][TUN][TCP] concurrency full, closing {} -> {}",
                             local_addr,
                             remote_addr
                         );
@@ -510,7 +627,7 @@ pub fn new(
             handle_inbound_datagram(udp_socket, inbound_tag, nat_manager, fakedns.clone()).await;
         }));
 
-        info!("start tun inbound");
+        info!("[LEAF-PERF][TUN] start tun inbound");
         futures::future::select_all(futs).await;
     }))
 }

@@ -731,6 +731,7 @@ pub fn to_internal(conf: &mut Config) -> Result<internal::Config> {
 
             if ext_general.tun_fd.is_some() {
                 settings.fd = ext_general.tun_fd.unwrap();
+                settings.mtu = 1200;
             } else if ext_general.tun_auto.is_some() && ext_general.tun_auto.unwrap() {
                 settings.auto = true;
                 settings.fd = -1; // disable fd option

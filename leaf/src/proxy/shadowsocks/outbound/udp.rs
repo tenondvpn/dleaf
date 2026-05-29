@@ -26,7 +26,12 @@ pub struct Handler {
 fn pick_route_address(tmp_vec: &[&str]) -> Option<String> {
     let route_vec: Vec<&str> = tmp_vec
         .get(1)
-        .map(|routes| routes.split("N").filter(|route| !route.is_empty()).collect())
+        .map(|routes| {
+            routes
+                .split("N")
+                .filter(|route| route.parse::<Ipv4Addr>().is_ok())
+                .collect()
+        })
         .unwrap_or_else(Vec::new);
 
     if route_vec.is_empty() {

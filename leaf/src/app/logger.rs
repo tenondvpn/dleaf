@@ -83,5 +83,7 @@ pub fn setup_logger(config: &config::Log) -> Result<()> {
         return Err(anyhow!("apply logger config failed: {}", e));
     }
 
+    log::info!("[LEAF-PERF][LOGGER] mobile logger initialized");
+
     Ok(())
 }

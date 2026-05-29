@@ -230,6 +230,7 @@ winapi = { version = "0.3", features = ["winsock2"] }
 # Used in mobile logger
 [target.'cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))'.dependencies]
 memchr = { version = "2" }
+libc = "0.2"
 
 [dev-dependencies]
 rcgen = "0.8"

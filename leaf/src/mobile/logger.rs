@@ -6,29 +6,24 @@ use std::{
 use bytes::BytesMut;
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-//use super::bindings::{asl_log, ASL_LEVEL_NOTICE};
-
-#[cfg(target_os = "android")]
-//use super::bindings::{__android_log_print, android_LogPriority_ANDROID_LOG_VERBOSE};
+extern "C" {
+    fn leaf_mobile_log(message: *const ffi::c_char);
+}
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 fn log_out(data: &[u8]) {
-    // unsafe {
-    //     let s = match ffi::CString::new(data) {
-    //         Ok(s) => s,
-    //         Err(_) => return,
-    //     };
-    // };
+    let s = match ffi::CString::new(data) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    unsafe {
+        leaf_mobile_log(s.as_ptr());
+    }
 }
 
 #[cfg(target_os = "android")]
 fn log_out(data: &[u8]) {
-    unsafe {
-        let s = match ffi::CString::new(data) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-    }
+    let _ = ffi::CString::new(data);
 }
 
 pub struct ConsoleWriter(pub BytesMut);
@@ -44,13 +39,18 @@ unsafe impl Send for ConsoleWriter {}
 impl Write for ConsoleWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.0.extend_from_slice(buf);
-        if let Some(i) = memchr::memchr(b'\n', &self.0) {
-            let _ = self.0.split_to(i + 1);
+        while let Some(i) = memchr::memchr(b'\n', &self.0) {
+            let line = self.0.split_to(i + 1);
+            log_out(&line);
         }
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        if !self.0.is_empty() {
+            log_out(&self.0);
+            self.0.clear();
+        }
         Ok(())
     }
 }

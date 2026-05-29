@@ -362,11 +362,19 @@ impl DnsClient {
     }
 
     pub async fn lookup(&self, host: &String) -> Result<Vec<IpAddr>> {
+        let lookup_start = Instant::now();
         if let Ok(ip) = host.parse::<IpAddr>() {
+            info!("[LEAF-PERF][DNS] literal {} in {}ms", host, lookup_start.elapsed().as_millis());
             return Ok(vec![ip]);
         }
 
         if let Ok(ips) = self.get_cached(host).await {
+            info!(
+                "[LEAF-PERF][DNS] cache hit {} -> {:?} in {}ms",
+                host,
+                ips,
+                lookup_start.elapsed().as_millis()
+            );
             return Ok(ips);
         }
 
@@ -389,6 +397,12 @@ impl DnsClient {
                         )
                         .await;
                     }
+                    info!(
+                        "[LEAF-PERF][DNS] hosts hit {} -> {:?} in {}ms",
+                        host,
+                        ips,
+                        lookup_start.elapsed().as_millis()
+                    );
                     return Ok(ips.to_vec());
                 }
             }
@@ -484,14 +498,33 @@ impl DnsClient {
                     self.cache_insert(host, v.0.clone()).await;
                     ips.append(&mut v.0.ips);
                 }
-                Err(e) => last_err = Some(anyhow!("all dns servers failed, last error: {}", e)),
+                Err(e) => {
+                    info!(
+                        "[LEAF-PERF][DNS] query branch failed {} in {}ms: {}",
+                        host,
+                        lookup_start.elapsed().as_millis(),
+                        e
+                    );
+                    last_err = Some(anyhow!("all dns servers failed, last error: {}", e))
+                }
             }
         }
 
         if !ips.is_empty() {
+            info!(
+                "[LEAF-PERF][DNS] resolved {} -> {:?} in {}ms",
+                host,
+                ips,
+                lookup_start.elapsed().as_millis()
+            );
             return Ok(ips);
         }
 
+        info!(
+            "[LEAF-PERF][DNS] failed {} in {}ms",
+            host,
+            lookup_start.elapsed().as_millis()
+        );
         Err(last_err.unwrap_or_else(|| anyhow!("could not resolve to any address")))
     }
 }

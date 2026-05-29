@@ -130,10 +130,12 @@ impl NatManager {
         let mut guard = self.sessions.lock().await;
 
         if guard.contains_key(dgram_src) {
+            trace!("[LEAF-PERF][NAT][UDP] reuse session {} packet={} bytes", dgram_src, pkt.data.len());
             self._send(&mut guard, dgram_src, pkt);
             return;
         }
 
+        let add_start = Instant::now();
         let sess = sess.cloned().unwrap_or(Session {
             network: Network::Udp,
             source: dgram_src.address,
@@ -145,11 +147,12 @@ impl NatManager {
         self.add_session(sess, dgram_src.clone(), client_ch_tx.clone(), &mut guard)
             .await;
 
-        debug!(
-            "added udp session {} -> {} ({})",
+        info!(
+            "[LEAF-PERF][NAT][UDP] added session {} -> {} active={} in {}ms",
             &dgram_src,
             &pkt.dst_addr,
             guard.len(),
+            add_start.elapsed().as_millis()
         );
 
         self._send(&mut guard, dgram_src, pkt);
@@ -181,42 +184,71 @@ impl NatManager {
         // because we have stream type transports for UDP traffic, establishing a
         // TCP stream would block the task.
         tokio::spawn(async move {
+            let dispatch_start = Instant::now();
+            info!("[LEAF-PERF][NAT][UDP] dispatch session begin {}", &raddr);
             // new socket to communicate with the target.
             let socket = match dispatcher.dispatch_udp(sess).await {
                 Ok(s) => s,
                 Err(e) => {
-                    debug!("dispatch {} failed: {}", &raddr, e);
+                    info!(
+                        "[LEAF-PERF][NAT][UDP] dispatch session failed {} in {}ms: {}",
+                        &raddr,
+                        dispatch_start.elapsed().as_millis(),
+                        e
+                    );
                     sessions.lock().await.remove(&raddr);
                     return;
                 }
             };
+            info!(
+                "[LEAF-PERF][NAT][UDP] dispatch session ready {} in {}ms",
+                &raddr,
+                dispatch_start.elapsed().as_millis()
+            );
 
             let (mut target_sock_recv, mut target_sock_send) = socket.split();
 
             // downlink
             let downlink_task = async move {
                 let mut buf = vec![0u8; *crate::option::DATAGRAM_BUFFER_SIZE * 1024];
+                let mut downlink_count: u64 = 0;
+                let mut downlink_bytes: u64 = 0;
+                let mut last_report = Instant::now();
                 loop {
                     match target_sock_recv.recv_from(&mut buf).await {
                         Err(err) => {
-                            debug!(
-                                "Failed to receive downlink packets on session {}: {}",
+                            info!(
+                                "[LEAF-PERF][NAT][UDP] downlink recv failed session {}: {}",
                                 &raddr, err
                             );
                             break;
                         }
                         Ok((n, addr)) => {
+                            downlink_count += 1;
+                            downlink_bytes += n as u64;
                             let pkt = UdpPacket::new(
                                 (&buf[..n]).to_vec(),
                                 addr.clone(),
                                 SocksAddr::from(raddr.address),
                             );
                             if let Err(err) = client_ch_tx.send(pkt).await {
-                                debug!(
-                                    "Failed to send downlink packets on session {} to {}: {}",
+                                info!(
+                                    "[LEAF-PERF][NAT][UDP] downlink send to client failed session {} to {}: {}",
                                     &raddr, &addr, err
                                 );
                                 break;
+                            }
+                            if last_report.elapsed() >= Duration::from_secs(2) {
+                                info!(
+                                    "[LEAF-PERF][NAT][UDP] downlink session {} packets={} bytes={} last_addr={}",
+                                    &raddr,
+                                    downlink_count,
+                                    downlink_bytes,
+                                    &addr
+                                );
+                                downlink_count = 0;
+                                downlink_bytes = 0;
+                                last_report = Instant::now();
                             }
 
                             // activity update
@@ -238,6 +270,7 @@ impl NatManager {
                         }
                     }
                 }
+                info!("[LEAF-PERF][NAT][UDP] downlink session end {}", &raddr);
                 sessions.lock().await.remove(&raddr);
             };
 
@@ -252,15 +285,33 @@ impl NatManager {
 
             // uplink
             tokio::spawn(async move {
+                let mut uplink_count: u64 = 0;
+                let mut uplink_bytes: u64 = 0;
+                let mut last_report = Instant::now();
                 while let Some(pkt) = target_ch_rx.recv().await {
+                    uplink_count += 1;
+                    uplink_bytes += pkt.data.len() as u64;
                     if let Err(e) = target_sock_send.send_to(&pkt.data, &pkt.dst_addr).await {
-                        debug!(
-                            "Failed to send uplink packets on session {} to {}: {:?}",
+                        info!(
+                            "[LEAF-PERF][NAT][UDP] uplink send failed session {} to {}: {:?}",
                             &raddr, &pkt.dst_addr, e
                         );
                         break;
                     }
+                    if last_report.elapsed() >= Duration::from_secs(2) {
+                        info!(
+                            "[LEAF-PERF][NAT][UDP] uplink session {} packets={} bytes={} last_dst={}",
+                            &raddr,
+                            uplink_count,
+                            uplink_bytes,
+                            &pkt.dst_addr
+                        );
+                        uplink_count = 0;
+                        uplink_bytes = 0;
+                        last_report = Instant::now();
+                    }
                 }
+                info!("[LEAF-PERF][NAT][UDP] uplink session end {}", &raddr);
             });
         });
     }
