@@ -158,6 +158,37 @@ pub extern "C" fn leaf_shutdown(rt_id: u16) -> bool {
     leaf::shutdown(rt_id)
 }
 
+/// Pre-creates the Windows TUN session so a later leaf_run can reuse it.
+///
+/// This does not start leaf routing. It only holds the adapter/session open
+/// until leaf_run consumes it or leaf_release_prewarmed_tun drops it.
+#[cfg(all(feature = "default-ring", target_os = "windows"))]
+#[no_mangle]
+pub extern "C" fn leaf_prewarm_tun() -> i32 {
+    if let Err(e) = leaf::proxy::tun::inbound::prewarm_windows_tun() {
+        eprintln!("leaf_prewarm_tun failed: {}", e);
+        return ERR_IO;
+    }
+    ERR_OK
+}
+
+#[cfg(not(all(feature = "default-ring", target_os = "windows")))]
+#[no_mangle]
+pub extern "C" fn leaf_prewarm_tun() -> i32 {
+    ERR_OK
+}
+
+/// Releases a pre-created Windows TUN session if leaf_run has not consumed it.
+#[cfg(all(feature = "default-ring", target_os = "windows"))]
+#[no_mangle]
+pub extern "C" fn leaf_release_prewarmed_tun() {
+    leaf::proxy::tun::inbound::release_prewarmed_windows_tun();
+}
+
+#[cfg(not(all(feature = "default-ring", target_os = "windows")))]
+#[no_mangle]
+pub extern "C" fn leaf_release_prewarmed_tun() {}
+
 /// Tests the configuration.
 ///
 /// @param config_path The path of the config file, must be a file with suffix .conf

@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use crate::common;
 use tokio::io::AsyncWriteExt;
 use bytes::{BufMut, Bytes, BytesMut};
-use openssl::sha::Sha256;
+use sha2::{Digest, Sha256};
 use super::shadow::ShadowedStream;
 use chrono::DateTime;
 use chrono::Local;
@@ -97,7 +97,7 @@ impl TcpOutboundHandler for Handler {
             let tmp_pk_str = hex::decode(tmp_pk[4..70].to_string()).expect("Decoding failed");
             let mut hasher = Sha256::new();
             hasher.update(&tmp_pk_str.clone());
-            let result = hasher.finish();
+            let result = hasher.finalize();
             let result_str = hex::encode(result);
             common::sync_valid_routes::SetResponseHash(address.clone(), result_str);
         }

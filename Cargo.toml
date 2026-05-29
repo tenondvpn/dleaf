@@ -8,6 +8,12 @@ members = [
 ]
 default-members = ["leaf-bin"]
 
+[patch.crates-io]
+ntapi = { path = "patches/ntapi-0.3.7" }
+
+[patch."https://github.com/eycorsican/netstack-lwip.git"]
+netstack-lwip = { path = "patches/netstack-lwip-0.3.1" }
+
 [profile.release]
 opt-level = 3
 lto = true

@@ -19,6 +19,10 @@ use tokio::time::timeout;
 use std::os::unix::io::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawSocket;
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
+use winapi::um::winsock2::{setsockopt, WSAGetLastError};
 #[cfg(target_os = "android")]
 use {
     std::os::unix::io::RawFd, tokio::io::AsyncReadExt, tokio::io::AsyncWriteExt,
@@ -74,12 +78,16 @@ pub mod tryall;
         target_os = "ios",
         target_os = "android",
         target_os = "macos",
-        target_os = "linux"
+        target_os = "linux",
+        target_os = "windows"
     )
 ))]
 pub mod tun;
 #[cfg(any(feature = "inbound-ws", feature = "outbound-ws"))]
 pub mod ws;
+
+#[cfg(windows)]
+static WINDOWS_INTERFACE_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 
 pub use datagram::{
     SimpleInboundDatagram, SimpleInboundDatagramRecvHalf, SimpleInboundDatagramSendHalf,
@@ -148,7 +156,12 @@ trait BindSocket: AsRawFd {
     fn bind(&self, bind_addr: &SocketAddr) -> io::Result<()>;
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(windows)]
+trait BindSocket: AsRawSocket {
+    fn bind(&self, bind_addr: &SocketAddr) -> io::Result<()>;
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 trait BindSocket {
     fn bind(&self, bind_addr: &SocketAddr) -> io::Result<()>;
 }
@@ -181,6 +194,46 @@ impl TcpListener {
         apply_socket_opts(&stream)?;
         Ok((stream, addr))
     }
+}
+
+#[cfg(windows)]
+fn bind_socket_to_windows_interface<T: AsRawSocket>(
+    socket: &T,
+    iface: &str,
+    indicator: &SocketAddr,
+) -> io::Result<u32> {
+    const IPPROTO_IP: i32 = 0;
+    const IPPROTO_IPV6: i32 = 41;
+    const IP_UNICAST_IF: i32 = 31;
+    const IPV6_UNICAST_IF: i32 = 31;
+
+    let index = crate::common::cmd::get_interface_index(iface).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("resolve Windows interface {} failed: {}", iface, e),
+        )
+    })?;
+
+    let (level, optname, value) = match indicator {
+        SocketAddr::V4(..) => (IPPROTO_IP, IP_UNICAST_IF, index.to_be()),
+        SocketAddr::V6(..) => (IPPROTO_IPV6, IPV6_UNICAST_IF, index),
+    };
+
+    let ret = unsafe {
+        setsockopt(
+            socket.as_raw_socket() as _,
+            level,
+            optname,
+            &value as *const u32 as *const i8,
+            std::mem::size_of::<u32>() as i32,
+        )
+    };
+    if ret == -1 {
+        return Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }));
+    }
+
+    trace!("socket bind Windows interface {} ({})", iface, index);
+    Ok(index)
 }
 
 async fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Result<()> {
@@ -258,7 +311,30 @@ async fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::R
                     trace!("socket bind {}", iface);
                     return Ok(());
                 }
-                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+                #[cfg(target_os = "windows")]
+                {
+                    match bind_socket_to_windows_interface(socket, iface, indicator) {
+                        Ok(index) => {
+                            if !WINDOWS_INTERFACE_BIND_LOGGED.swap(true, Ordering::Relaxed) {
+                                info!(
+                                    "Windows outbound socket binding active: interface {} ({})",
+                                    iface, index
+                                );
+                            } else {
+                                trace!(
+                                    "socket bound to Windows interface {} ({}) for {}",
+                                    iface, index, indicator
+                                );
+                            }
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            last_err = Some(e);
+                            continue;
+                        }
+                    }
+                }
+                #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
                 {
                     return Err(io::Error::new(
                         io::ErrorKind::Other,

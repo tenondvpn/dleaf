@@ -4,6 +4,7 @@ extern crate rand;
 use rand::Rng;
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
+use sha2::{Digest, Sha256};
 use crate::common;
 use log::*;
 use rand::thread_rng;
@@ -229,9 +230,14 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         } else {
             self.address.clone()
         };
-        let ex_hash = common::sync_valid_routes::GetResponseHash(hash_address);
-        if (ex_hash.eq("")) {
-            error!("error.");
+        let mut ex_hash = common::sync_valid_routes::GetResponseHash(hash_address.clone());
+        if ex_hash.is_empty() {
+            let tmp_pk = common::sync_valid_routes::GetClientPk().to_string();
+            let tmp_pk_str = hex::decode(tmp_pk[4..70].to_string()).expect("Decoding failed");
+            let mut hasher = Sha256::new();
+            hasher.update(&tmp_pk_str);
+            ex_hash = hex::encode(hasher.finalize());
+            common::sync_valid_routes::SetResponseHash(hash_address, ex_hash.clone());
         }
 
         let decode_hash = hex::decode(ex_hash).expect("Decoding failed");

@@ -30,6 +30,11 @@ lazy_static! {
         get_env_var_or("DIRECT_TCP_CONCURRENCY", 64)
     };
 
+    /// Maximum number of TUN TCP connections dispatched at the same time.
+    pub static ref TUN_TCP_CONCURRENCY: usize = {
+        get_env_var_or("TUN_TCP_CONCURRENCY", 64)
+    };
+
     /// DNS cache size in the built-in DNS client.
     pub static ref DNS_CACHE_SIZE: usize = {
         get_env_var_or("DNS_CACHE_SIZE", 64)
@@ -46,6 +51,11 @@ lazy_static! {
     /// Maximum number of direct outbound TCP connections allowed at the same time.
     pub static ref DIRECT_TCP_CONCURRENCY: usize = {
         get_env_var_or("DIRECT_TCP_CONCURRENCY", 1024)
+    };
+
+    /// Maximum number of TUN TCP connections dispatched at the same time.
+    pub static ref TUN_TCP_CONCURRENCY: usize = {
+        get_env_var_or("TUN_TCP_CONCURRENCY", 512)
     };
 
     /// DNS cache size in the built-in DNS client.

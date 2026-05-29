@@ -13,6 +13,14 @@ ios-opt:
 lib:
 	cargo build -p leaf-ffi --release
 	cbindgen --config leaf-ffi/cbindgen.toml leaf-ffi/src/lib.rs > target/release/leaf.h
+
+windows:
+	cargo build -p leaf-ffi --release --target x86_64-pc-windows-msvc --no-default-features --features default-ring
+	mkdir -p ../Fluters/windows/runner/libs/x64
+	cp target/x86_64-pc-windows-msvc/release/leaf.lib ../Fluters/windows/runner/libs/x64/leaf.lib
+	cbindgen --config leaf-ffi/cbindgen.toml leaf-ffi/src/lib.rs > target/x86_64-pc-windows-msvc/release/leaf.h
+	cp target/x86_64-pc-windows-msvc/release/leaf.h ../Fluters/windows/runner/leaf.h
+
 android:
 	cargo ndk -t armeabi-v7a -t x86 -t x86_64 -t arm64-v8a build --release -p leaf-android
 lib-dev:

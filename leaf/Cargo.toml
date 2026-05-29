@@ -132,7 +132,6 @@ socket2 = "0.4"
 directories = "4.0"
 async-ffi = "0.2"
 libloading = "0.7"
-easy-http-request = "0.2.13"
 tokio-core = "0.1.17"
 hyper = { version = "0.14", features = ["full"] }
 reqwest = { version = "0.11.13", features = ["blocking", "json"] }
@@ -217,13 +216,16 @@ warp = { version = "0.3", default-features = false, optional = true }
 notify = { version = "5.0.0-pre.13", optional = true }
 
 # TUN
-[target.'cfg(any(target_os = "ios", target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
-tun = { git = "https://github.com/eycorsican/rust-tun.git", branch = "upgrade", features = ["async"], optional = true }
+[target.'cfg(any(target_os = "ios", target_os = "android", target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
+tun = { version = "=0.8.4", features = ["async"], optional = true }
 netstack-lwip = { git = "https://github.com/eycorsican/netstack-lwip.git", tag = "v0.3.1", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 pnet_datalink = { version = "0.28", package = "pnet_datalink" }
 libc = "0.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["winsock2"] }
 
 # Used in mobile logger
 [target.'cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))'.dependencies]

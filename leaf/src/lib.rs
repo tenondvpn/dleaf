@@ -39,7 +39,7 @@ pub mod util;
 #[cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))]
 pub mod mobile;
 
-#[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+#[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 mod sys;
 
 #[derive(Error, Debug)]
@@ -462,7 +462,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         .map_err(Error::Config)?;
     runners.append(&mut inbound_net_runners);
 
-    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let net_info = if inbound_manager.has_tun_listener() && inbound_manager.tun_auto() {
         sys::get_net_info()
     } else {
@@ -486,21 +486,56 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         }
     }
 
+    #[cfg(all(feature = "inbound-tun", target_os = "windows"))]
+    {
+        if let Some(index) = net_info.default_interface_index {
+            let iface = format!("ifindex:{}", index);
+            let binds = if let Ok(v) = std::env::var("OUTBOUND_INTERFACE") {
+                if v.trim().is_empty() {
+                    iface.clone()
+                } else {
+                    format!("{},{}", iface, v)
+                }
+            } else {
+                iface.clone()
+            };
+            std::env::set_var("OUTBOUND_INTERFACE", binds);
+            log::info!("Windows outbound sockets pinned to interface index {}", index);
+        } else if let Some(iface) = &net_info.default_interface {
+            let binds = if let Ok(v) = std::env::var("OUTBOUND_INTERFACE") {
+                if v.trim().is_empty() {
+                    iface.clone()
+                } else {
+                    format!("{},{}", iface, v)
+                }
+            } else {
+                iface.clone()
+            };
+            std::env::set_var("OUTBOUND_INTERFACE", binds);
+            log::info!("Windows outbound sockets pinned to interface {}", iface);
+        }
+    }
+
     #[cfg(all(
         feature = "inbound-tun",
         any(
             target_os = "ios",
             target_os = "android",
             target_os = "macos",
-            target_os = "linux"
+            target_os = "linux",
+            target_os = "windows"
         )
     ))]
-    if let Ok(r) = inbound_manager.get_tun_runner() {
-        runners.push(r);
+    match inbound_manager.get_tun_runner() {
+        Ok(r) => {
+            #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+            sys::post_tun_creation_setup(&net_info);
+            runners.push(r);
+        }
+        Err(e) => {
+            log::error!("create tun runner failed: {}", e);
+        }
     }
-
-    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-    sys::post_tun_creation_setup(&net_info);
 
     let runtime_manager = RuntimeManager::new(
         #[cfg(feature = "auto-reload")]
@@ -585,7 +620,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
 
     rt.block_on(futures::future::select_all(tasks));
 
-    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     sys::post_tun_completion_setup(&net_info);
 
     rt.shutdown_background();
