@@ -19,12 +19,23 @@ if [ -z "$NDK_HOME" ]; then
     exit 1
 fi
 
+if [ ! -d "$android_tools" ] && [ "$host_os" = "darwin" ]; then
+    if [ -d "$NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin" ]; then
+        android_tools="$NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+    fi
+fi
+
+if [ ! -d "$android_tools" ]; then
+    echo "Android NDK llvm toolchain not found: $android_tools"
+    exit 1
+fi
+
 build_target() {
     local target="$1"
     local jni_dir="$2"
     local clang_target="${3:-$target}"
     local linker="$android_tools/${clang_target}${api}-clang"
-    local ar="$android_tools/${target}-ar"
+    local ar="$android_tools/llvm-ar"
 
     mkdir -p "$out_dir/$jni_dir"
     case "$target" in
