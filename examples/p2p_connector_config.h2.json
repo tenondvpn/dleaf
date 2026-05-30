@@ -1,0 +1,15 @@
+{
+  "proxy_mode": "transparent",
+  "local_address": "127.0.0.1",
+  "local_port": 10860,
+  "ss_method": "chacha20-ietf-poly1305",
+  "ss_password": "change-me",
+  "route_host": "vpn_route.example.com",
+  "route_port": 443,
+  "server_name": "vpn_route.example.com",
+  "vless_uuid": "00000000-0000-0000-0000-000000000000",
+  "transport": "h2",
+  "connect_authority": "vpn_route.example.com:443",
+  "connect_path": "/",
+  "insecure_skip_verify": false
+}

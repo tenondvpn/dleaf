@@ -27,3 +27,4 @@ auto-reload = ["leaf/auto-reload"]
 [dependencies]
 leaf = { path = "../leaf", default-features = false }
 jni = { version = "0.19", default-features = false }
+libloading = "0.7"

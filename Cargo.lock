@@ -1373,6 +1373,7 @@ version = "0.1.0"
 dependencies = [
  "jni",
  "leaf",
+ "libloading 0.7.3",
 ]
 
 [[package]]

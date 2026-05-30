@@ -78,3 +78,5 @@ build_target x86_64-linux-android x86_64
 build_target aarch64-linux-android arm64-v8a
 build_target i686-linux-android x86
 build_target armv7-linux-androideabi armeabi-v7a armv7a-linux-androideabi
+
+"$base/../go/connector/build_android.sh" "$mode" "$out_dir"
