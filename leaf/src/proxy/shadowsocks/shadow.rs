@@ -1,7 +1,4 @@
-use std::mem::MaybeUninit;
-use std::{cmp::min, io, pin::Pin};
 use crate::common;
-use std::net::Ipv4Addr;
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{
@@ -10,6 +7,9 @@ use futures::{
 };
 use log::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use std::mem::MaybeUninit;
+use std::net::Ipv4Addr;
+use std::{cmp::min, io, pin::Pin};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::common::crypto::{
@@ -179,9 +179,9 @@ where
                     let tag_slice = &me.read_buf[0..4];
                     if (tag_slice == b"conn") {
                         let tmp_slice = &me.read_buf[4..8];
-                        let ptr :*const u8 = tmp_slice.as_ptr();
-                        let ptr :*const u32 = ptr as *const u32;
-                        let s = unsafe{ *ptr};
+                        let ptr: *const u8 = tmp_slice.as_ptr();
+                        let ptr: *const u32 = ptr as *const u32;
+                        let s = unsafe { *ptr };
                         let addr = Ipv4Addr::from(s);
                         common::sync_valid_routes::SetResponseStatus(addr.to_string(), true);
                         error!("success set response status {}", addr.to_string());

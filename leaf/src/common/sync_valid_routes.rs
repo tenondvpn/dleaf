@@ -1,16 +1,16 @@
-use std::thread;
-use std::time::Duration;
-use std::process;
-use std::panic;
-use std::collections::HashMap;
 use chrono::DateTime;
 use chrono::Local;
+use lazy_static::lazy_static;
+use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::panic;
+use std::process;
+use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
 use xxhash_rust::const_xxh3::xxh3_64 as const_xxh3;
 use xxhash_rust::xxh3::xxh3_64;
 use xxhash_rust::xxh32;
-use std::sync::Mutex;
-use lazy_static::lazy_static;
-use std::collections::VecDeque;
 
 lazy_static! {
     static ref valid_routes: Mutex<String> = Mutex::new(String::from(""));
@@ -61,7 +61,7 @@ pub fn GetResponseHash(svr_add: String) -> String {
     let tmp = "".to_string();
     let val = v.get(&svr_add).unwrap_or(&tmp);
     let tmp_val = val.to_string();
-    let vec :Vec<&str> = tmp_val.split(",").collect();
+    let vec: Vec<&str> = tmp_val.split(",").collect();
     if (vec.len() >= 2) {
         vec[0].to_string()
     } else {
@@ -76,7 +76,7 @@ pub fn SetResponseStatus(svr_add: String, val: bool) {
 
 pub fn GetResponseStatus(svr_add: String) -> bool {
     let mut v = connection_status.lock().unwrap();
-    let tmp : bool = false;
+    let tmp: bool = false;
     let val = v.get(&svr_add).unwrap_or(&tmp);
     *val
 }
@@ -87,7 +87,7 @@ pub fn ClearAll() {
     connection_status.lock().unwrap().clear();
 }
 
-pub fn get_port_with_ip(ip: String, min_port: u32, max_port: u32) ->u16 {
+pub fn get_port_with_ip(ip: String, min_port: u32, max_port: u32) -> u16 {
     let dt: DateTime<Local> = Local::now();
     let timestamp = dt.timestamp() / (3600 * 24);
     let mut tmp_str = ip.clone();

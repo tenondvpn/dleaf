@@ -199,7 +199,11 @@ async fn handle_inbound_stream(
         ..Default::default()
     };
     // Whether to override the destination according to Fake DNS.
-    log::info!("[LEAF-PERF][TUN][TCP] accepted {} -> {}", local_addr, remote_addr);
+    log::info!(
+        "[LEAF-PERF][TUN][TCP] accepted {} -> {}",
+        local_addr,
+        remote_addr
+    );
     if is_unproxyable_tun_ip(remote_addr.ip()) {
         log::info!(
             "[LEAF-PERF][TUN][TCP] drop unproxyable {} -> {}",
@@ -294,15 +298,15 @@ async fn handle_inbound_datagram(
             };
             let dst_addr_for_log = pkt.dst_addr.clone();
             if let Err(e) = ls_cloned.send_to(&pkt.data[..], &src_addr, &pkt.dst_addr.must_ip()) {
-                warn!("[LEAF-PERF][TUN][UDP] send downlink to netstack failed: {}", e);
+                warn!(
+                    "[LEAF-PERF][TUN][UDP] send downlink to netstack failed: {}",
+                    e
+                );
             }
             if last_report.elapsed() >= Duration::from_secs(2) {
                 info!(
                     "[LEAF-PERF][TUN][UDP] downlink packets={} bytes={} last_src={} last_dst={}",
-                    downlink_count,
-                    downlink_bytes,
-                    src_addr,
-                    dst_addr_for_log
+                    downlink_count, downlink_bytes, src_addr, dst_addr_for_log
                 );
                 downlink_count = 0;
                 downlink_bytes = 0;
@@ -326,10 +330,7 @@ async fn handle_inbound_datagram(
                 if last_uplink_report.elapsed() >= Duration::from_secs(2) {
                     info!(
                         "[LEAF-PERF][TUN][UDP] uplink packets={} bytes={} last_src={} last_dst={}",
-                        uplink_count,
-                        uplink_bytes,
-                        src_addr,
-                        dst_addr
+                        uplink_count, uplink_bytes, src_addr, dst_addr
                     );
                     uplink_count = 0;
                     uplink_bytes = 0;
@@ -338,11 +339,18 @@ async fn handle_inbound_datagram(
                 // Fake DNS logic.
                 if dst_addr.port() == 53 {
                     let dns_start = Instant::now();
-                    log::info!("[LEAF-PERF][TUN][UDP][DNS] fake dns packet {} -> {}", src_addr, dst_addr);
+                    log::info!(
+                        "[LEAF-PERF][TUN][UDP][DNS] fake dns packet {} -> {}",
+                        src_addr,
+                        dst_addr
+                    );
                     match fakedns.generate_fake_response(&data).await {
                         Ok(resp) => {
                             if let Err(e) = ls.send_to(resp.as_ref(), &dst_addr, &src_addr) {
-                                warn!("[LEAF-PERF][TUN][UDP][DNS] send fake response failed: {}", e);
+                                warn!(
+                                    "[LEAF-PERF][TUN][UDP][DNS] send fake response failed: {}",
+                                    e
+                                );
                             }
                             info!(
                                 "[LEAF-PERF][TUN][UDP][DNS] fake response done {} -> {} in {}ms",
@@ -490,6 +498,8 @@ pub fn new(
     };
     #[cfg(not(windows))]
     let tun = tun::create_as_async(&cfg).map_err(|e| anyhow!("create tun failed: {}", e))?;
+    let (stack, tcp_listener, udp_socket) =
+        netstack::NetStack::new().map_err(|e| anyhow!("create netstack failed: {}", e))?;
     #[cfg(windows)]
     {
         let index = tun
@@ -519,7 +529,7 @@ pub fn new(
         let inbound_tag = inbound.tag.clone();
         let framed = tun.into_framed();
         let (mut tun_sink, mut tun_stream) = framed.split();
-        let (stack, mut tcp_listener, udp_socket) = netstack::NetStack::new();
+        let mut tcp_listener = tcp_listener;
         let (mut stack_sink, mut stack_stream) = stack.split();
 
         let mut futs: Vec<Runner> = Vec::new();
@@ -535,14 +545,16 @@ pub fn new(
                     byte_count += pkt.len() as u64;
                     let pkt_len = pkt.len();
                     if let Err(e) = tun_sink.send(pkt).await {
-                        warn!("[LEAF-PERF][TUN] stack->tun send failed after {} bytes pkt: {}", pkt_len, e);
+                        warn!(
+                            "[LEAF-PERF][TUN] stack->tun send failed after {} bytes pkt: {}",
+                            pkt_len, e
+                        );
                         break;
                     }
                     if last_report.elapsed() >= Duration::from_secs(2) {
                         info!(
                             "[LEAF-PERF][TUN] stack->tun packets={} bytes={}",
-                            pkt_count,
-                            byte_count
+                            pkt_count, byte_count
                         );
                         pkt_count = 0;
                         byte_count = 0;
@@ -563,14 +575,16 @@ pub fn new(
                     byte_count += pkt.len() as u64;
                     let pkt_len = pkt.len();
                     if let Err(e) = stack_sink.send(pkt).await {
-                        warn!("[LEAF-PERF][TUN] tun->stack send failed after {} bytes pkt: {}", pkt_len, e);
+                        warn!(
+                            "[LEAF-PERF][TUN] tun->stack send failed after {} bytes pkt: {}",
+                            pkt_len, e
+                        );
                         break;
                     }
                     if last_report.elapsed() >= Duration::from_secs(2) {
                         info!(
                             "[LEAF-PERF][TUN] tun->stack packets={} bytes={}",
-                            pkt_count,
-                            byte_count
+                            pkt_count, byte_count
                         );
                         pkt_count = 0;
                         byte_count = 0;
@@ -587,7 +601,10 @@ pub fn new(
         futs.push(Box::pin(async move {
             let tcp_slots = Arc::new(Semaphore::new(*option::TUN_TCP_CONCURRENCY));
             while let Some((stream, local_addr, remote_addr)) = tcp_listener.next().await {
-                info!("[LEAF-PERF][TUN][TCP] listener got {} -> {}", local_addr, remote_addr);
+                info!(
+                    "[LEAF-PERF][TUN][TCP] listener got {} -> {}",
+                    local_addr, remote_addr
+                );
                 let permit = match tcp_slots.clone().try_acquire_owned() {
                     Ok(permit) => permit,
                     Err(_) => {

@@ -1,18 +1,18 @@
-use std::{cmp::min, convert::TryFrom, io, sync::Arc};
 use std::net::Ipv4Addr;
+use std::{cmp::min, convert::TryFrom, io, sync::Arc};
 extern crate rand;
-use rand::Rng;
-use async_trait::async_trait;
-use bytes::{BufMut, BytesMut};
-use sha2::{Digest, Sha256};
 use crate::common;
-use log::*;
-use rand::thread_rng;
-use rand::distributions::Alphanumeric;
 use crate::{
     proxy::*,
     session::{Session, SocksAddr, SocksAddrWireType},
 };
+use async_trait::async_trait;
+use bytes::{BufMut, BytesMut};
+use log::*;
+use rand::distributions::Alphanumeric;
+use rand::thread_rng;
+use rand::Rng;
+use sha2::{Digest, Sha256};
 
 use super::shadow::{self, ShadowedDatagram};
 
@@ -72,7 +72,7 @@ impl UdpOutboundHandler for Handler {
     fn connect_addr(&self) -> Option<OutboundConnect> {
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
-        let vec :Vec<&str> = tmp_pass.split("-").collect();
+        let vec: Vec<&str> = tmp_pass.split("-").collect();
         let (address, port, _) = select_connect_addr(&vec, &tmp_vec);
 
         Some(OutboundConnect::Proxy(address.clone(), port))
@@ -89,7 +89,7 @@ impl UdpOutboundHandler for Handler {
     ) -> io::Result<Self::Datagram> {
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
-        let vec :Vec<&str> = tmp_pass.split("-").collect();
+        let vec: Vec<&str> = tmp_pass.split("-").collect();
         let (address, port, use_vpn_server) = select_connect_addr(&vec, &tmp_vec);
         let mut tmp_vpn_ip = 0;
         let mut tmp_vpn_port = vec[2].parse::<u16>().unwrap();
@@ -98,7 +98,8 @@ impl UdpOutboundHandler for Handler {
         } else {
             let addr: Ipv4Addr = vec[1].to_string().parse().unwrap();
             tmp_vpn_ip = addr.into();
-            tmp_vpn_port = common::sync_valid_routes::get_port_with_ip(vec[1].to_string(), 10000, 35000);
+            tmp_vpn_port =
+                common::sync_valid_routes::get_port_with_ip(vec[1].to_string(), 10000, 35000);
         }
 
         let server_addr = SocksAddr::try_from((&address.clone(), port))?;
@@ -108,7 +109,7 @@ impl UdpOutboundHandler for Handler {
             return Err(io::Error::new(io::ErrorKind::Other, "invalid input"));
         };
 
-        let tmp_ps = vec[0].to_string();// String::from("36e9bdb0e851b567016b2f4dbe6a72f08edb3922d82e09c94b48f26392a39a81");
+        let tmp_ps = vec[0].to_string(); // String::from("36e9bdb0e851b567016b2f4dbe6a72f08edb3922d82e09c94b48f26392a39a81");
         let tmp_pk = vec[3];
         let tmp_ver = vec[4];
         let mut tmp_ex_route_ip = 0;
@@ -274,12 +275,12 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         buffer1.put_slice(self.ver[..].as_bytes());
         let mut buffer = BytesMut::with_capacity(ciphertext.len() + buffer1.len());
         buffer.put_slice(&buffer1);
-        buffer.put_slice(&ciphertext); 
+        buffer.put_slice(&ciphertext);
         let mut i = 0;
         let pos: usize = head_size + (n2 as usize / 2);
         while i != buffer.len() {
             if i == pos || i == head_size {
-                i=i+1;
+                i = i + 1;
                 continue;
             }
 

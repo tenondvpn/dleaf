@@ -130,7 +130,11 @@ impl NatManager {
         let mut guard = self.sessions.lock().await;
 
         if guard.contains_key(dgram_src) {
-            trace!("[LEAF-PERF][NAT][UDP] reuse session {} packet={} bytes", dgram_src, pkt.data.len());
+            trace!(
+                "[LEAF-PERF][NAT][UDP] reuse session {} packet={} bytes",
+                dgram_src,
+                pkt.data.len()
+            );
             self._send(&mut guard, dgram_src, pkt);
             return;
         }

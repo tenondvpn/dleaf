@@ -28,3 +28,4 @@ auto-reload = ["leaf/auto-reload"]
 leaf = { path = "../leaf", default-features = false }
 jni = { version = "0.19", default-features = false }
 libloading = "0.7"
+android_log-sys = "0.2"

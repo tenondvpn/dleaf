@@ -323,7 +323,9 @@ async fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::R
                             } else {
                                 trace!(
                                     "socket bound to Windows interface {} ({}) for {}",
-                                    iface, index, indicator
+                                    iface,
+                                    index,
+                                    indicator
                                 );
                             }
                             return Ok(());
@@ -419,7 +421,14 @@ async fn tcp_dial_task(dial_addr: SocketAddr) -> io::Result<(AnyStream, SocketAd
     bind_socket(&socket, &dial_addr).await?;
 
     #[cfg(target_os = "android")]
-    protect_socket(socket.as_raw_fd()).await?;
+    if dial_addr.ip().is_loopback() {
+        info!(
+            "[LEAF-PERF][PROXY][TCP] skip protect for loopback dial {}",
+            &dial_addr
+        );
+    } else {
+        protect_socket(socket.as_raw_fd()).await?;
+    }
 
     info!("[LEAF-PERF][PROXY][TCP] dial begin {}", &dial_addr);
     let stream = timeout(
@@ -473,7 +482,10 @@ pub async fn connect_tcp_outbound(
             Ok(Some(new_tcp_stream(dns_client, &addr, &port).await?))
         }
         Some(OutboundConnect::Direct) => {
-            info!("[LEAF-PERF][PROXY][TCP] direct connect {}", sess.destination);
+            info!(
+                "[LEAF-PERF][PROXY][TCP] direct connect {}",
+                sess.destination
+            );
             Ok(Some(
                 new_tcp_stream(
                     dns_client,
@@ -503,9 +515,7 @@ pub async fn connect_udp_outbound(
                 DatagramTransportType::Datagram => {
                     info!(
                         "[LEAF-PERF][PROXY][UDP] proxy datagram socket source={} proxy={}:{}",
-                        sess.source,
-                        addr,
-                        port
+                        sess.source, addr, port
                     );
                     let socket = new_udp_socket(&sess.source).await?;
                     Ok(Some(OutboundTransport::Datagram(Box::new(
@@ -513,7 +523,10 @@ pub async fn connect_udp_outbound(
                     ))))
                 }
                 DatagramTransportType::Stream => {
-                    info!("[LEAF-PERF][PROXY][UDP] proxy stream connect {}:{}", addr, port);
+                    info!(
+                        "[LEAF-PERF][PROXY][UDP] proxy stream connect {}:{}",
+                        addr, port
+                    );
                     let stream = new_tcp_stream(dns_client.clone(), &addr, &port).await?;
                     Ok(Some(OutboundTransport::Stream(stream)))
                 }
@@ -521,7 +534,10 @@ pub async fn connect_udp_outbound(
             }
         }
         Some(OutboundConnect::Direct) => {
-            info!("[LEAF-PERF][PROXY][UDP] direct socket source={}", sess.source);
+            info!(
+                "[LEAF-PERF][PROXY][UDP] direct socket source={}",
+                sess.source
+            );
             let socket = new_udp_socket(&sess.source).await?;
             let dest = match &sess.destination {
                 SocksAddr::Domain(domain, port) => {

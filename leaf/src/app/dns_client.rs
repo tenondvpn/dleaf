@@ -364,7 +364,11 @@ impl DnsClient {
     pub async fn lookup(&self, host: &String) -> Result<Vec<IpAddr>> {
         let lookup_start = Instant::now();
         if let Ok(ip) = host.parse::<IpAddr>() {
-            info!("[LEAF-PERF][DNS] literal {} in {}ms", host, lookup_start.elapsed().as_millis());
+            info!(
+                "[LEAF-PERF][DNS] literal {} in {}ms",
+                host,
+                lookup_start.elapsed().as_millis()
+            );
             return Ok(vec![ip]);
         }
 

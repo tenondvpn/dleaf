@@ -82,8 +82,7 @@ impl Dispatcher {
         let dispatch_start = tokio::time::Instant::now();
         info!(
             "[LEAF-PERF][DISPATCH][TCP] begin {} -> {}",
-            sess.source,
-            sess.destination
+            sess.source, sess.destination
         );
         let mut lhs: Box<dyn ProxyStream> =
             if !sess.destination.is_domain() && sess.destination.port() == 443 {
@@ -138,7 +137,10 @@ impl Dispatcher {
                 Ok(tag) => {
                     info!(
                         "[LEAF-PERF][DISPATCH][TCP] picked route [{}] for {} -> {} in {}ms",
-                        tag, &sess.source, &sess.destination, route_start.elapsed().as_millis()
+                        tag,
+                        &sess.source,
+                        &sess.destination,
+                        route_start.elapsed().as_millis()
                     );
                     tag.to_owned()
                 }
@@ -176,7 +178,10 @@ impl Dispatcher {
             h
         } else {
             // FIXME use  the default handler
-            warn!("[LEAF-PERF][DISPATCH][TCP] handler [{}] not found", outbound);
+            warn!(
+                "[LEAF-PERF][DISPATCH][TCP] handler [{}] not found",
+                outbound
+            );
             if let Err(e) = lhs.shutdown().await {
                 debug!(
                     "tcp downlink {} <- {} error: {}",
@@ -193,11 +198,12 @@ impl Dispatcher {
             sess.destination,
             h.tag()
         );
-        let stream =
-            match crate::proxy::connect_tcp_outbound(&sess, self.dns_client.clone(), &h).await {
-                Ok(s) => s,
-                Err(e) => {
-                    info!(
+        let stream = match crate::proxy::connect_tcp_outbound(&sess, self.dns_client.clone(), &h)
+            .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                info!(
                         "[LEAF-PERF][DISPATCH][TCP] connect outbound failed {} -> {} via [{}] in {}ms: {}",
                         &sess.source,
                         &sess.destination,
@@ -205,10 +211,10 @@ impl Dispatcher {
                         handshake_start.elapsed().as_millis(),
                         e
                     );
-                    log_request(&sess, h.tag(), h.color(), None);
-                    return;
-                }
-            };
+                log_request(&sess, h.tag(), h.color(), None);
+                return;
+            }
+        };
         info!(
             "[LEAF-PERF][DISPATCH][TCP] outbound connected {} -> {} via [{}] in {}ms",
             sess.source,
@@ -301,8 +307,7 @@ impl Dispatcher {
         let dispatch_start = tokio::time::Instant::now();
         info!(
             "[LEAF-PERF][DISPATCH][UDP] begin {} -> {}",
-            sess.source,
-            sess.destination
+            sess.source, sess.destination
         );
         let outbound = {
             let route_start = tokio::time::Instant::now();
@@ -311,7 +316,10 @@ impl Dispatcher {
                 Ok(tag) => {
                     info!(
                         "[LEAF-PERF][DISPATCH][UDP] picked route [{}] for {} -> {} in {}ms",
-                        tag, &sess.source, &sess.destination, route_start.elapsed().as_millis()
+                        tag,
+                        &sess.source,
+                        &sess.destination,
+                        route_start.elapsed().as_millis()
                     );
                     tag.to_owned()
                 }
@@ -342,7 +350,10 @@ impl Dispatcher {
         let h = if let Some(h) = self.outbound_manager.read().await.get(&outbound) {
             h
         } else {
-            warn!("[LEAF-PERF][DISPATCH][UDP] handler [{}] not found", outbound);
+            warn!(
+                "[LEAF-PERF][DISPATCH][UDP] handler [{}] not found",
+                outbound
+            );
             return Err(io::Error::new(ErrorKind::Other, "handler not found"));
         };
 

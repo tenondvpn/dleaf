@@ -1,21 +1,21 @@
 use std::io;
 extern crate rand;
-use std::net::Ipv4Addr;
-use rand::Rng;
-use rand::thread_rng;
-use rand::distributions::Alphanumeric;
-use async_trait::async_trait;
-use crate::common;
-use tokio::io::AsyncWriteExt;
-use bytes::{BufMut, Bytes, BytesMut};
-use sha2::{Digest, Sha256};
 use super::shadow::ShadowedStream;
-use chrono::DateTime;
-use chrono::Local;
+use crate::common;
 use crate::{
     proxy::*,
     session::{Session, SocksAddrWireType},
 };
+use async_trait::async_trait;
+use bytes::{BufMut, Bytes, BytesMut};
+use chrono::DateTime;
+use chrono::Local;
+use rand::distributions::Alphanumeric;
+use rand::thread_rng;
+use rand::Rng;
+use sha2::{Digest, Sha256};
+use std::net::{IpAddr, Ipv4Addr};
+use tokio::io::AsyncWriteExt;
 
 pub struct Handler {
     pub address: String,
@@ -65,15 +65,27 @@ fn select_connect_addr(vec: &[&str], tmp_vec: &[&str]) -> (String, u16, bool) {
     (address, port, use_vpn_server)
 }
 
+fn is_loopback_address(address: &str) -> bool {
+    address == "localhost"
+        || address
+            .parse::<IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
+}
+
 #[async_trait]
 impl TcpOutboundHandler for Handler {
     type Stream = AnyStream;
     fn connect_addr(&self) -> Option<OutboundConnect> {
+        if is_loopback_address(&self.address) {
+            return Some(OutboundConnect::Proxy(self.address.clone(), self.port));
+        }
+
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
-        let vec :Vec<&str> = tmp_pass.split("-").collect();
+        let vec: Vec<&str> = tmp_pass.split("-").collect();
         let (address, port, _) = select_connect_addr(&vec, &tmp_vec);
-        
+
         Some(OutboundConnect::Proxy(address.clone(), port))
     }
 
@@ -82,18 +94,21 @@ impl TcpOutboundHandler for Handler {
         sess: &'a Session,
         stream: Option<Self::Stream>,
     ) -> io::Result<Self::Stream> {
-        let mut src_stream = stream.ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid input"))?;
+        let mut src_stream =
+            stream.ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid input"))?;
         let tmp_vec: Vec<&str> = self.password.split("M").collect();
         let tmp_pass = tmp_vec[0].to_string();
-        let vec :Vec<&str> = tmp_pass.split("-").collect(); 
+        let vec: Vec<&str> = tmp_pass.split("-").collect();
         let tmp_ps = vec[0].to_string();
         let address = vec[1].to_string();
         let (_, _, use_vpn_server) = select_connect_addr(&vec, &tmp_vec);
-        let mut pk_str : Vec<u8>;
+        let mut pk_str: Vec<u8>;
         if (common::sync_valid_routes::GetResponseStatus(address.clone())) {
-            pk_str = hex::decode(common::sync_valid_routes::GetClientPkHash()).expect("Decoding failed");
+            pk_str =
+                hex::decode(common::sync_valid_routes::GetClientPkHash()).expect("Decoding failed");
         } else {
-            pk_str = hex::decode(common::sync_valid_routes::GetClientPk()).expect("Decoding failed");
+            pk_str =
+                hex::decode(common::sync_valid_routes::GetClientPk()).expect("Decoding failed");
         }
 
         let ex_hash = common::sync_valid_routes::GetResponseHash(address.clone());
@@ -106,7 +121,7 @@ impl TcpOutboundHandler for Handler {
             let result_str = hex::encode(result);
             common::sync_valid_routes::SetResponseHash(address.clone(), result_str);
         }
-        
+
         let mut pk_len = pk_str.len() as u32;
         pk_len += 2;
         let mut n2: u8 = thread_rng().gen_range(7..16) % 16;
@@ -132,9 +147,13 @@ impl TcpOutboundHandler for Handler {
                     buffer1 = BytesMut::with_capacity(all_len as usize);
 
                     let ex_address = pick_route_address(&tmp_vec).unwrap();
-                    let port = common::sync_valid_routes::get_port_with_ip(ex_address.clone(), 35000, 65000);
+                    let port = common::sync_valid_routes::get_port_with_ip(
+                        ex_address.clone(),
+                        35000,
+                        65000,
+                    );
 
-                    let addr : Ipv4Addr = ex_address.clone().parse().unwrap();
+                    let addr: Ipv4Addr = ex_address.clone().parse().unwrap();
                     let addr_u32: u32 = addr.into();
                     buffer1.put_u32(addr_u32);
                     buffer1.put_u16(port);
@@ -145,11 +164,12 @@ impl TcpOutboundHandler for Handler {
         if (!use_vpn_server && vec.len() >= 8 && vec[7].parse::<u32>().unwrap() == 0) {
             let addr: Ipv4Addr = vec[1].to_string().parse().unwrap();
             let addr_u32: u32 = addr.into();
-            let vpn_port = common::sync_valid_routes::get_port_with_ip(vec[1].to_string(), 10000, 35000);
+            let vpn_port =
+                common::sync_valid_routes::get_port_with_ip(vec[1].to_string(), 10000, 35000);
             buffer1.put_u32(addr_u32);
             buffer1.put_u16(vpn_port);
             head_size += 6;
-        } 
+        }
 
         buffer1.put_u8(n2);
         let rand_string: String = thread_rng()
