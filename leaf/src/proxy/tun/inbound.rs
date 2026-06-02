@@ -75,6 +75,7 @@ fn configure_auto_tun(cfg: &mut tun::Configuration, include_destination: bool) {
         .address(&*option::DEFAULT_TUN_IPV4_ADDR)
         .mtu(1500);
 
+    #[cfg(not(windows))]
     if include_destination {
         cfg.destination(&*option::DEFAULT_TUN_IPV4_GW);
     }
@@ -498,8 +499,7 @@ pub fn new(
     };
     #[cfg(not(windows))]
     let tun = tun::create_as_async(&cfg).map_err(|e| anyhow!("create tun failed: {}", e))?;
-    let (stack, tcp_listener, udp_socket) =
-        netstack::NetStack::new().map_err(|e| anyhow!("create netstack failed: {}", e))?;
+    let (stack, tcp_listener, udp_socket) = netstack::NetStack::new();
     #[cfg(windows)]
     {
         let index = tun

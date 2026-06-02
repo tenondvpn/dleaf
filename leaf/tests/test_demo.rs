@@ -1,4 +1,3 @@
-
 #[test]
 fn test_demo() {
     let config_path = "config.conf".to_string();

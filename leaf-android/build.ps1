@@ -12,11 +12,26 @@ if (-not $Env:NDK_HOME) {
 
 $repoRoot = Resolve-Path "$PSScriptRoot\.."
 $ndkLlvmRoot = Join-Path $Env:NDK_HOME "toolchains\llvm\prebuilt\windows-x86_64"
+$ndkBinRoot = Join-Path $ndkLlvmRoot "bin"
 $api = "26"
 
+if (-not $Env:LIBCLANG_PATH) {
+    $libclangPath = Join-Path $ndkBinRoot "libclang.dll"
+    if (Test-Path $libclangPath) {
+        [Environment]::SetEnvironmentVariable("LIBCLANG_PATH", $ndkBinRoot, "Process")
+    }
+}
+
 function Build-Target($target, $jniDir, $envPrefix, $clangTarget = $target) {
-    $linker = Join-Path $ndkLlvmRoot "bin\$clangTarget$api-clang.cmd"
-    $ar = Join-Path $ndkLlvmRoot "bin\$target-ar.exe"
+    $linker = Join-Path $ndkBinRoot "$clangTarget$api-clang.cmd"
+    $ar = Join-Path $ndkBinRoot "llvm-ar.exe"
+
+    if (-not (Test-Path $linker)) {
+        throw "Android linker not found: $linker"
+    }
+    if (-not (Test-Path $ar)) {
+        throw "Android archiver not found: $ar"
+    }
 
     [Environment]::SetEnvironmentVariable("CC_$envPrefix", $linker, "Process")
     [Environment]::SetEnvironmentVariable("AR_$envPrefix", $ar, "Process")
@@ -31,6 +46,9 @@ function Build-Target($target, $jniDir, $envPrefix, $clangTarget = $target) {
         $args += "--release"
     }
     cargo @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "cargo build failed for $target"
+    }
 
     Copy-Item -Force "$repoRoot\target\$target\$Mode\libleafandroid.so" $targetOutDir
 }

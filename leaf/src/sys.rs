@@ -86,10 +86,35 @@ pub fn get_net_info() -> NetInfo {
 
 #[cfg(target_os = "windows")]
 pub fn get_net_info() -> NetInfo {
-    let iface = common::cmd::get_default_interface().ok();
-    let iface_index = common::cmd::get_default_interface_index().ok();
-    let ipv4_gw = common::cmd::get_default_ipv4_gateway().ok();
-    let ipv4_addr = common::cmd::get_default_ipv4_address().ok();
+    if std::env::var("LEAF_WINDOWS_FAST_TUN_SETUP")
+        .map(|value| value == "1")
+        .unwrap_or(false)
+    {
+        return NetInfo::default();
+    }
+
+    let mut iface = None;
+    let mut iface_index = None;
+    let mut ipv4_gw = None;
+    let mut ipv4_addr = None;
+    if let Ok(summary) = common::cmd::get_default_ipv4_route_summary() {
+        iface = summary.interface;
+        iface_index = summary.interface_index;
+        ipv4_gw = summary.gateway;
+        ipv4_addr = summary.address;
+    }
+    if iface.is_none() {
+        iface = common::cmd::get_default_interface().ok();
+    }
+    if iface_index.is_none() {
+        iface_index = common::cmd::get_default_interface_index().ok();
+    }
+    if ipv4_gw.is_none() {
+        ipv4_gw = common::cmd::get_default_ipv4_gateway().ok();
+    }
+    if ipv4_addr.is_none() {
+        ipv4_addr = common::cmd::get_default_ipv4_address().ok();
+    }
     let ipv6_gw = if *option::ENABLE_IPV6 {
         common::cmd::get_default_ipv6_gateway().ok()
     } else {
@@ -214,6 +239,14 @@ pub fn post_tun_creation_setup(net_info: &NetInfo) {
 pub fn post_tun_creation_setup(net_info: &NetInfo) {
     use std::net::Ipv4Addr;
 
+    if std::env::var("LEAF_WINDOWS_FAST_TUN_SETUP")
+        .map(|value| value == "1")
+        .unwrap_or(false)
+    {
+        log::info!("Windows TUN route setup delegated to runner");
+        return;
+    }
+
     let Some(ipv4_gw) = &net_info.default_ipv4_gateway else {
         log::warn!("skip Windows TUN route setup: missing default IPv4 gateway");
         return;
@@ -238,8 +271,16 @@ pub fn post_tun_creation_setup(net_info: &NetInfo) {
         tun_gw,
         tun_mask
     );
-    if let Ok(diag) = common::cmd::windows_tun_diagnostics() {
-        log::info!("Windows TUN diagnostics before route setup:\n{}", diag);
+    if common::cmd::windows_tun_diagnostics_enabled() {
+        if let Ok(diag) = common::cmd::windows_tun_diagnostics() {
+            log::info!("Windows TUN diagnostics before route setup:\n{}", diag);
+        }
+    }
+
+    if let Err(e) = common::cmd::optimize_tun_interface(tun_name) {
+        log::warn!("optimize Windows TUN interface failed: {}", e);
+    } else {
+        log::info!("Windows TUN interface optimized: {}", tun_name);
     }
 
     if let Ok(bypass) = std::env::var("VPN_BYPASS_IPV4") {
@@ -266,8 +307,10 @@ pub fn post_tun_creation_setup(net_info: &NetInfo) {
     if let Err(e) = common::cmd::add_split_ipv4_default_routes(tun_gw, tun_name.to_string()) {
         log::warn!("add Windows TUN split default routes failed: {}", e);
     }
-    if let Ok(diag) = common::cmd::windows_tun_diagnostics() {
-        log::info!("Windows TUN diagnostics after route setup:\n{}", diag);
+    if common::cmd::windows_tun_diagnostics_enabled() {
+        if let Ok(diag) = common::cmd::windows_tun_diagnostics() {
+            log::info!("Windows TUN diagnostics after route setup:\n{}", diag);
+        }
     }
 }
 
@@ -344,6 +387,13 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
 pub fn post_tun_completion_setup(net_info: &NetInfo) {
     use std::net::Ipv4Addr;
 
+    if std::env::var("LEAF_WINDOWS_FAST_TUN_SETUP")
+        .map(|value| value == "1")
+        .unwrap_or(false)
+    {
+        return;
+    }
+
     if let Ok(bypass) = std::env::var("VPN_BYPASS_IPV4") {
         for item in bypass.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             if let Ok(address) = item.parse::<Ipv4Addr>() {
@@ -355,8 +405,10 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
     }
 
     let _ = common::cmd::delete_split_ipv4_default_routes();
-    if let Ok(diag) = common::cmd::windows_tun_diagnostics() {
-        log::info!("Windows TUN diagnostics after cleanup:\n{}", diag);
+    if common::cmd::windows_tun_diagnostics_enabled() {
+        if let Ok(diag) = common::cmd::windows_tun_diagnostics() {
+            log::info!("Windows TUN diagnostics after cleanup:\n{}", diag);
+        }
     }
     if let (Some(ipv4_gw), Some(iface)) =
         (&net_info.default_ipv4_gateway, &net_info.default_interface)

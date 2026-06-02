@@ -1,12 +1,17 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::windows::process::CommandExt;
 use std::process::Command;
-use std::thread;
-use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+pub struct DefaultIpv4RouteSummary {
+    pub gateway: Option<String>,
+    pub interface: Option<String>,
+    pub interface_index: Option<u32>,
+    pub address: Option<String>,
+}
 
 fn hidden_command(program: &str) -> Command {
     let mut command = Command::new(program);
@@ -118,8 +123,48 @@ pub fn windows_tun_diagnostics() -> Result<String> {
     ))
 }
 
+pub fn windows_tun_diagnostics_enabled() -> bool {
+    matches!(
+        std::env::var("WINDOWS_TUN_DIAGNOSTICS")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 pub fn get_default_ipv4_gateway() -> Result<String> {
     powershell("(Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1 -ExpandProperty NextHop)")
+}
+
+pub fn get_default_ipv4_route_summary() -> Result<DefaultIpv4RouteSummary> {
+    let output = powershell(
+        "$route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1; \
+         $adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue; \
+         $ip = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -notlike '169.254.*'} | Select-Object -First 1; \
+         [string]$route.NextHop; [string]$route.InterfaceIndex; if ($adapter) { [string]$adapter.Name } else { '' }; if ($ip) { [string]$ip.IPAddress } else { '' }",
+    )?;
+    let mut lines = output.lines().map(str::trim);
+    let gateway = lines
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let interface_index = lines.next().and_then(|value| value.parse::<u32>().ok());
+    let interface = lines
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let address = lines
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    Ok(DefaultIpv4RouteSummary {
+        gateway,
+        interface,
+        interface_index,
+        address,
+    })
 }
 
 pub fn get_default_ipv6_gateway() -> Result<String> {
@@ -177,6 +222,45 @@ pub fn add_interface_ipv6_address(name: &str, addr: Ipv6Addr, prefixlen: i32) ->
     run_status(command)
 }
 
+pub fn optimize_tun_interface(name: &str) -> Result<()> {
+    let index = interface_index(name)?;
+    let mut first_error = None;
+
+    let mut disable_router_discovery = hidden_command("netsh.exe");
+    disable_router_discovery
+        .arg("interface")
+        .arg("ipv6")
+        .arg("set")
+        .arg("interface")
+        .arg(index.to_string())
+        .arg("routerdiscovery=disabled")
+        .arg("dadtransmits=0")
+        .arg("managedaddress=disabled")
+        .arg("otherstateful=disabled");
+    if let Err(e) = run_status(disable_router_discovery) {
+        first_error.get_or_insert(e);
+    }
+
+    let mut disable_forwarding = hidden_command("netsh.exe");
+    disable_forwarding
+        .arg("interface")
+        .arg("ipv6")
+        .arg("set")
+        .arg("interface")
+        .arg(index.to_string())
+        .arg("forwarding=disabled")
+        .arg("advertise=disabled");
+    if let Err(e) = run_status(disable_forwarding) {
+        first_error.get_or_insert(e);
+    }
+
+    if let Some(e) = first_error {
+        Err(e)
+    } else {
+        Ok(())
+    }
+}
+
 pub fn add_default_ipv4_route(gateway: Ipv4Addr, interface: String, primary: bool) -> Result<()> {
     let metric = if primary { "1" } else { "50" };
     let mut command = hidden_command("route.exe");
@@ -195,26 +279,45 @@ pub fn add_default_ipv4_route(gateway: Ipv4Addr, interface: String, primary: boo
 }
 
 pub fn add_split_ipv4_default_routes(_gateway: Ipv4Addr, interface: String) -> Result<()> {
-    let mut index = None;
-    for _ in 0..20 {
-        match interface_index(&interface) {
-            Ok(value) if !value.trim().is_empty() => {
-                index = Some(value.trim().to_string());
-                break;
-            }
-            _ => thread::sleep(Duration::from_millis(250)),
-        }
-    }
-    let index = index.ok_or_else(|| anyhow!("TUN adapter interface index not found"))?;
+    let index = interface_index(&interface)?;
     log::info!("Windows TUN route interface index: {}", index);
-    for prefix in ["0.0.0.0/1", "128.0.0.0/1"] {
-        powershell(&format!(
-            "Get-NetRoute -DestinationPrefix '{}' -InterfaceIndex {} -ErrorAction SilentlyContinue | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue; New-NetRoute -DestinationPrefix '{}' -InterfaceIndex {} -NextHop '0.0.0.0' -RouteMetric 0 -PolicyStore ActiveStore | Out-Null; Get-NetRoute -DestinationPrefix '{}' -InterfaceIndex {} -ErrorAction Stop | Select-Object -First 1 DestinationPrefix,NextHop,InterfaceIndex,RouteMetric,InterfaceMetric | Format-List | Out-String",
-            prefix, index, prefix, index, prefix, index
-        ))?;
+
+    let mut delete_default = hidden_command("route.exe");
+    delete_default
+        .arg("delete")
+        .arg("0.0.0.0")
+        .arg("mask")
+        .arg("0.0.0.0")
+        .arg("0.0.0.0");
+    let _ = run_status(delete_default);
+
+    for (destination, mask, label) in [
+        ("0.0.0.0", "128.0.0.0", "0.0.0.0/1"),
+        ("128.0.0.0", "128.0.0.0", "128.0.0.0/1"),
+    ] {
+        let mut delete = hidden_command("route.exe");
+        delete
+            .arg("delete")
+            .arg(destination)
+            .arg("mask")
+            .arg(mask)
+            .arg("0.0.0.0");
+        let _ = run_status(delete);
+
+        let mut add = hidden_command("route.exe");
+        add.arg("add")
+            .arg(destination)
+            .arg("mask")
+            .arg(mask)
+            .arg("0.0.0.0")
+            .arg("metric")
+            .arg("1")
+            .arg("if")
+            .arg(index.to_string());
+        run_status(add)?;
         log::info!(
             "Windows TUN split route added: {} via interface {}",
-            prefix,
+            label,
             index
         );
     }
@@ -223,11 +326,10 @@ pub fn add_split_ipv4_default_routes(_gateway: Ipv4Addr, interface: String) -> R
 
 pub fn delete_split_ipv4_default_routes() -> Result<()> {
     let mut first_error = None;
-    for prefix in ["0.0.0.0/1", "128.0.0.0/1"] {
-        if let Err(e) = powershell(&format!(
-            "Get-NetRoute -DestinationPrefix '{}' -ErrorAction SilentlyContinue | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue",
-            prefix
-        )) {
+    for (destination, mask) in [("0.0.0.0", "128.0.0.0"), ("128.0.0.0", "128.0.0.0")] {
+        let mut command = hidden_command("route.exe");
+        command.arg("delete").arg(destination).arg("mask").arg(mask);
+        if let Err(e) = run_status(command) {
             first_error.get_or_insert(e);
         }
     }
@@ -285,34 +387,39 @@ pub fn add_host_ipv4_routes(
     if addresses.is_empty() {
         return Ok(());
     }
-    let addresses = addresses
-        .iter()
-        .map(|address| format!("'{}'", address))
-        .collect::<Vec<_>>()
-        .join(",");
-    let gateway = gateway.to_string();
-    let interface_script = if let Some(interface) = interface {
-        let escaped = interface.replace('\'', "''");
-        format!(
-            "$adapter = Get-NetAdapter -Name '{}' -ErrorAction SilentlyContinue | Select-Object -First 1; ",
-            escaped
-        )
+    let index = interface
+        .as_deref()
+        .and_then(|value| get_interface_index(value).ok());
+    let mut first_error = None;
+    for address in addresses {
+        let mut delete = hidden_command("route.exe");
+        delete
+            .arg("delete")
+            .arg(address.to_string())
+            .arg("mask")
+            .arg("255.255.255.255");
+        let _ = run_status(delete);
+
+        let mut add = hidden_command("route.exe");
+        add.arg("add")
+            .arg(address.to_string())
+            .arg("mask")
+            .arg("255.255.255.255")
+            .arg(gateway.to_string())
+            .arg("metric")
+            .arg("1");
+        if let Some(index) = index {
+            add.arg("if").arg(index.to_string());
+        }
+        if let Err(e) = run_status(add) {
+            first_error.get_or_insert(e);
+        }
+    }
+    if let Some(e) = first_error {
+        Err(e)
     } else {
-        "$adapter = $null; ".to_string()
-    };
-    let script = format!(
-        "{}\
-         if (-not $adapter) {{ $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -NextHop '{}' -ErrorAction SilentlyContinue | Sort-Object RouteMetric,InterfaceMetric | Select-Object -First 1; if ($route) {{ $adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue; }} }} \
-         if (-not $adapter) {{ throw 'physical adapter not found for bypass route' }} \
-         $addresses = @({}); \
-         foreach ($address in $addresses) {{ \
-             $prefix = \"$address/32\"; \
-             Get-NetRoute -DestinationPrefix $prefix -ErrorAction SilentlyContinue | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue; \
-             New-NetRoute -DestinationPrefix $prefix -InterfaceIndex $adapter.InterfaceIndex -NextHop '{}' -RouteMetric 1 -PolicyStore ActiveStore | Out-Null; \
-         }}",
-        interface_script, gateway, addresses, gateway
-    );
-    powershell(&script).map(|_| ())
+        Ok(())
+    }
 }
 
 pub fn add_host_ipv4_route(
