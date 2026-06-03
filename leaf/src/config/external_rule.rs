@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::anyhow;
@@ -33,6 +33,10 @@ pub fn load_mmdb_rule(filter: &str) -> Result<(String, String)> {
 
 pub fn load_site_rule(filter: &str) -> Result<(String, String)> {
     load_file_or_default(filter, "site.dat")
+}
+
+pub fn load_cidr_rule(filter: &str) -> Result<(String, String)> {
+    load_file_or_default(filter, "chnroute.txt")
 }
 
 pub fn add_external_rule(rule: &mut internal::Router_Rule, ext_external: &str) -> Result<()> {
@@ -98,6 +102,29 @@ pub fn add_external_rule(rule: &mut internal::Router_Rule, ext_external: &str) -
                 break; // assume at most 1 matched tag
             }
         }
+    }
+    if ext_external.starts_with("cidr") {
+        let (file, code) = match load_cidr_rule(ext_external) {
+            Ok((f, c)) => (f, c),
+            Err(e) => {
+                return Err(anyhow!("load cidr rule failed: {}", e));
+            }
+        };
+        let reader = BufReader::new(File::open(&file)?);
+        let mut added = 0usize;
+        for line in reader.lines() {
+            let line = line?;
+            let value = line.split('#').next().unwrap_or("").trim();
+            if value.is_empty() {
+                continue;
+            }
+            rule.ip_cidrs.push(value.to_string());
+            added += 1;
+        }
+        println!(
+            "loaded {} cidr rules from [{}] for tag [{}]",
+            added, file, code
+        );
     }
     Ok(())
 }

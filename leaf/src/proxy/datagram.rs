@@ -20,6 +20,7 @@ pub struct SimpleOutboundDatagram {
     inner: UdpSocket,
     destination: Option<SocksAddr>,
     dns_client: SyncDnsClient,
+    real_dns: bool,
 }
 
 impl SimpleOutboundDatagram {
@@ -27,11 +28,13 @@ impl SimpleOutboundDatagram {
         inner: UdpSocket,
         destination: Option<SocksAddr>,
         dns_client: SyncDnsClient,
+        real_dns: bool,
     ) -> Self {
         SimpleOutboundDatagram {
             inner,
             destination,
             dns_client,
+            real_dns,
         }
     }
 }
@@ -47,7 +50,11 @@ impl OutboundDatagram for SimpleOutboundDatagram {
         let s = r.clone();
         (
             Box::new(SimpleOutboundDatagramRecvHalf(r, self.destination)),
-            Box::new(SimpleOutboundDatagramSendHalf(s, self.dns_client)),
+            Box::new(SimpleOutboundDatagramSendHalf(
+                s,
+                self.dns_client,
+                self.real_dns,
+            )),
         )
     }
 }
@@ -82,7 +89,7 @@ impl OutboundDatagramRecvHalf for SimpleOutboundDatagramRecvHalf {
     }
 }
 
-pub struct SimpleOutboundDatagramSendHalf(Arc<UdpSocket>, SyncDnsClient);
+pub struct SimpleOutboundDatagramSendHalf(Arc<UdpSocket>, SyncDnsClient, bool);
 
 #[async_trait]
 impl OutboundDatagramSendHalf for SimpleOutboundDatagramSendHalf {
@@ -90,17 +97,18 @@ impl OutboundDatagramSendHalf for SimpleOutboundDatagramSendHalf {
         let addr = match target {
             SocksAddr::Domain(domain, port) => {
                 let ips = {
-                    self.1
-                        .read()
-                        .await
-                        .lookup(domain)
-                        .map_err(|e| {
-                            io::Error::new(
-                                io::ErrorKind::Other,
-                                format!("lookup {} failed: {}", domain, e),
-                            )
-                        })
-                        .await?
+                    let dns_client = self.1.read().await;
+                    if self.2 {
+                        dns_client.lookup_real(domain).await
+                    } else {
+                        dns_client.lookup(domain).await
+                    }
+                    .map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::Other,
+                            format!("lookup {} failed: {}", domain, e),
+                        )
+                    })?
                 };
                 if ips.is_empty() {
                     return Err(io::Error::new(

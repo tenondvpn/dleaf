@@ -155,16 +155,7 @@ lazy_static! {
     };
 
     pub static ref OUTBOUND_BINDS: Vec<crate::proxy::OutboundBind> = {
-        let binds = get_env_var_or("OUTBOUND_INTERFACE", "0.0.0.0,::".to_string());
-        let mut outbound_binds = Vec::new();
-        for item in binds.split(',').map(str::trim) {
-            if let Ok(addr) = crate::common::net::parse_bind_addr(item) {
-                outbound_binds.push(crate::proxy::OutboundBind::Ip(addr));
-            } else {
-                outbound_binds.push(crate::proxy::OutboundBind::Interface(item.to_owned()));
-            }
-        }
-        outbound_binds
+        outbound_binds()
     };
 
     /// Sets the RPC service endpoint for protecting outbound sockets on Android to
@@ -234,4 +225,20 @@ lazy_static! {
     pub static ref DEFAULT_TUN_IPV6_PREFIXLEN: i32 = {
         get_env_var_or("DEFAULT_TUN_IPV6_PREFIXLEN", 64)
     };
+}
+
+pub fn outbound_binds() -> Vec<crate::proxy::OutboundBind> {
+    let binds = get_env_var_or("OUTBOUND_INTERFACE", "0.0.0.0,::".to_string());
+    let mut outbound_binds = Vec::new();
+    for item in binds.split(',').map(str::trim) {
+        if item.is_empty() {
+            continue;
+        }
+        if let Ok(addr) = crate::common::net::parse_bind_addr(item) {
+            outbound_binds.push(crate::proxy::OutboundBind::Ip(addr));
+        } else {
+            outbound_binds.push(crate::proxy::OutboundBind::Interface(item.to_owned()));
+        }
+    }
+    outbound_binds
 }

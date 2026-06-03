@@ -140,9 +140,19 @@ pub fn get_default_ipv4_gateway() -> Result<String> {
 
 pub fn get_default_ipv4_route_summary() -> Result<DefaultIpv4RouteSummary> {
     let output = powershell(
-        "$route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1; \
+        "$tunIndex = $env:LEAF_TUN_INTERFACE_INDEX; \
+         $routes = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | Sort-Object RouteMetric, InterfaceMetric; \
+         $route = $routes | Where-Object { \
+            $isTun = $false; \
+            if ($tunIndex -and [string]$_.InterfaceIndex -eq [string]$tunIndex) { $isTun = $true } \
+            $adapter = Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue; \
+            if ($adapter -and ($adapter.Name -eq 'FlutersTun' -or $adapter.Name -like '*Wintun*' -or $adapter.InterfaceDescription -like '*Wintun*' -or $adapter.InterfaceDescription -like '*Tunnel*')) { $isTun = $true } \
+            $ip = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '10.255.0.2'} | Select-Object -First 1; \
+            (-not $isTun) -and ($ip -ne $null) \
+         } | Select-Object -First 1; \
+         if (-not $route) { $route = $routes | Select-Object -First 1; } \
          $adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue; \
-         $ip = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -notlike '169.254.*'} | Select-Object -First 1; \
+         $ip = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '10.255.0.2'} | Select-Object -First 1; \
          [string]$route.NextHop; [string]$route.InterfaceIndex; if ($adapter) { [string]$adapter.Name } else { '' }; if ($ip) { [string]$ip.IPAddress } else { '' }",
     )?;
     let mut lines = output.lines().map(str::trim);
@@ -172,18 +182,21 @@ pub fn get_default_ipv6_gateway() -> Result<String> {
 }
 
 pub fn get_default_interface() -> Result<String> {
-    powershell("(Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1 | Get-NetAdapter | Select-Object -First 1 -ExpandProperty Name)")
+    get_default_ipv4_route_summary()?
+        .interface
+        .ok_or_else(|| anyhow!("default interface not found"))
 }
 
 pub fn get_default_interface_index() -> Result<u32> {
-    powershell("(Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1 -ExpandProperty InterfaceIndex)")?
-        .trim()
-        .parse::<u32>()
-        .map_err(|e| anyhow!("invalid default interface index: {}", e))
+    get_default_ipv4_route_summary()?
+        .interface_index
+        .ok_or_else(|| anyhow!("default interface index not found"))
 }
 
 pub fn get_default_ipv4_address() -> Result<String> {
-    powershell("$route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1; (Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex | Where-Object {$_.IPAddress -notlike '169.254.*'} | Select-Object -First 1 -ExpandProperty IPAddress)")
+    get_default_ipv4_route_summary()?
+        .address
+        .ok_or_else(|| anyhow!("default IPv4 address not found"))
 }
 
 pub fn get_default_ipv6_address() -> Result<String> {

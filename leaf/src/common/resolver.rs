@@ -30,6 +30,10 @@ impl Resolver {
             port: port.to_owned(),
         })
     }
+
+    pub fn from_ips(ips: Vec<IpAddr>, port: u16) -> Self {
+        Resolver { ips, port }
+    }
 }
 
 impl Iterator for Resolver {

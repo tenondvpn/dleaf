@@ -35,6 +35,16 @@ pub struct DnsClient {
 }
 
 impl DnsClient {
+    fn is_fake_dns_ip(ip: &IpAddr) -> bool {
+        match ip {
+            IpAddr::V4(ip) => {
+                let octets = ip.octets();
+                octets[0] == 198 && (octets[1] == 18 || octets[1] == 19)
+            }
+            IpAddr::V6(_) => false,
+        }
+    }
+
     fn load_servers(dns: &crate::config::Dns) -> Result<Vec<SocketAddr>> {
         let mut servers = Vec::new();
         for server in dns.servers.iter() {
@@ -530,6 +540,38 @@ impl DnsClient {
             lookup_start.elapsed().as_millis()
         );
         Err(last_err.unwrap_or_else(|| anyhow!("could not resolve to any address")))
+    }
+
+    pub async fn lookup_real(&self, host: &String) -> Result<Vec<IpAddr>> {
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            return Ok(vec![ip]);
+        }
+
+        let mut ips = self.lookup(host).await?;
+        let original_len = ips.len();
+        ips.retain(|ip| !Self::is_fake_dns_ip(ip));
+        if !ips.is_empty() {
+            if ips.len() != original_len {
+                info!(
+                    "[LEAF-PERF][DNS] real lookup filtered fake DNS cache {} -> {:?}",
+                    host, ips
+                );
+            }
+            return Ok(ips);
+        }
+
+        self.ipv4_cache.lock().await.pop(host);
+        self.ipv6_cache.lock().await.pop(host);
+        info!(
+            "[LEAF-PERF][DNS] real lookup dropped fake-only cache for {}, querying upstream",
+            host
+        );
+        let mut ips = self.lookup(host).await?;
+        ips.retain(|ip| !Self::is_fake_dns_ip(ip));
+        if ips.is_empty() {
+            return Err(anyhow!("real lookup returned only fake DNS IPs"));
+        }
+        Ok(ips)
     }
 }
 

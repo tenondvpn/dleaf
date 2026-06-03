@@ -89,6 +89,16 @@ pub mod ws;
 #[cfg(windows)]
 static WINDOWS_INTERFACE_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 
+fn is_fake_dns_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let octets = ip.octets();
+            octets[0] == 198 && (octets[1] == 18 || octets[1] == 19)
+        }
+        IpAddr::V6(_) => false,
+    }
+}
+
 pub use datagram::{
     SimpleInboundDatagram, SimpleInboundDatagramRecvHalf, SimpleInboundDatagramSendHalf,
     SimpleOutboundDatagram, SimpleOutboundDatagramRecvHalf, SimpleOutboundDatagramSendHalf,
@@ -251,7 +261,8 @@ async fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::R
         _ => {}
     }
     let mut last_err = None;
-    for bind in option::OUTBOUND_BINDS.iter() {
+    let outbound_binds = option::outbound_binds();
+    for bind in outbound_binds.iter() {
         match bind {
             OutboundBind::Interface(iface) => {
                 #[cfg(target_os = "macos")]
@@ -487,7 +498,7 @@ pub async fn connect_tcp_outbound(
                 sess.destination
             );
             Ok(Some(
-                new_tcp_stream(
+                new_direct_tcp_stream(
                     dns_client,
                     &sess.destination.host(),
                     &sess.destination.port(),
@@ -519,7 +530,7 @@ pub async fn connect_udp_outbound(
                     );
                     let socket = new_udp_socket(&sess.source).await?;
                     Ok(Some(OutboundTransport::Datagram(Box::new(
-                        SimpleOutboundDatagram::new(socket, None, dns_client.clone()),
+                        SimpleOutboundDatagram::new(socket, None, dns_client.clone(), false),
                     ))))
                 }
                 DatagramTransportType::Stream => {
@@ -546,7 +557,7 @@ pub async fn connect_udp_outbound(
                 _ => None,
             };
             Ok(Some(OutboundTransport::Datagram(Box::new(
-                SimpleOutboundDatagram::new(socket, dest, dns_client.clone()),
+                SimpleOutboundDatagram::new(socket, dest, dns_client.clone(), true),
             ))))
         }
         Some(OutboundConnect::NoConnect) | None => Ok(None),
@@ -559,23 +570,79 @@ pub async fn new_tcp_stream(
     address: &String,
     port: &u16,
 ) -> io::Result<AnyStream> {
+    new_tcp_stream_with_fake_dns(dns_client, address, port, true).await
+}
+
+pub async fn new_direct_tcp_stream(
+    dns_client: SyncDnsClient,
+    address: &String,
+    port: &u16,
+) -> io::Result<AnyStream> {
+    new_tcp_stream_with_fake_dns(dns_client, address, port, false).await
+}
+
+async fn new_tcp_stream_with_fake_dns(
+    dns_client: SyncDnsClient,
+    address: &String,
+    port: &u16,
+    allow_fake_dns: bool,
+) -> io::Result<AnyStream> {
     let resolve_start = Instant::now();
     info!("[LEAF-PERF][PROXY][TCP] resolve begin {}:{}", address, port);
-    let mut resolver = Resolver::new(dns_client.clone(), address, port)
-        .map_err(|e| {
+    let mut resolver = if allow_fake_dns || address.parse::<IpAddr>().is_ok() {
+        Resolver::new(dns_client.clone(), address, port)
+            .map_err(|e| {
+                info!(
+                    "[LEAF-PERF][PROXY][TCP] resolve failed {}:{} in {}ms: {}",
+                    address,
+                    port,
+                    resolve_start.elapsed().as_millis(),
+                    e
+                );
+                io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("resolve address failed: {}", e),
+                )
+            })
+            .await?
+    } else {
+        let mut ips = {
+            dns_client
+                .read()
+                .await
+                .lookup_real(address)
+                .map_err(|e| {
+                    info!(
+                        "[LEAF-PERF][PROXY][TCP] direct resolve failed {}:{} in {}ms: {}",
+                        address,
+                        port,
+                        resolve_start.elapsed().as_millis(),
+                        e
+                    );
+                    io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("resolve address failed: {}", e),
+                    )
+                })
+                .await?
+        };
+        let original_len = ips.len();
+        ips.retain(|ip| !is_fake_dns_ip(ip));
+        if ips.len() != original_len {
             info!(
-                "[LEAF-PERF][PROXY][TCP] resolve failed {}:{} in {}ms: {}",
-                address,
-                port,
-                resolve_start.elapsed().as_millis(),
-                e
+                "[LEAF-PERF][PROXY][TCP] direct resolve dropped fake DNS IPs {}:{} remaining={:?}",
+                address, port, ips
             );
-            io::Error::new(
+        }
+        if ips.is_empty() {
+            return Err(io::Error::new(
                 io::ErrorKind::Other,
-                format!("resolve address failed: {}", e),
-            )
-        })
-        .await?;
+                format!("direct resolve returned only fake DNS IPs for {}", address),
+            ));
+        }
+        ips.reverse();
+        Resolver::from_ips(ips, *port)
+    };
     info!(
         "[LEAF-PERF][PROXY][TCP] resolve ready {}:{} in {}ms",
         address,
