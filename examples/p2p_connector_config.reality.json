@@ -1,0 +1,18 @@
+{
+  "proxy_mode": "transparent",
+  "local_address": "127.0.0.1",
+  "local_port": 10860,
+  "ss_method": "chacha20-ietf-poly1305",
+  "ss_password": "change-me",
+  "route_host": "vpn_route.example.com",
+  "route_port": 443,
+  "target_host": "127.0.0.1",
+  "target_port": 44300,
+  "server_name": "dl.google.com",
+  "vless_uuid": "00000000-0000-0000-0000-000000000000",
+  "transport": "reality",
+  "reality_public_key": "REPLACE_REALITY_PUBLIC_KEY",
+  "reality_short_id": "REPLACE_REALITY_SHORT_ID",
+  "reality_spider_x": "/",
+  "chrome_fingerprint": "chrome"
+}
