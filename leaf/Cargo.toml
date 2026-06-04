@@ -226,6 +226,12 @@ libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["winsock2"] }
+windows-sys = { version = "0.52", features = [
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_Foundation",
+] }
 
 # Used in mobile logger
 [target.'cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))'.dependencies]
