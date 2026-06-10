@@ -51,7 +51,10 @@ fn select_connect_addr(vec: &[&str], tmp_vec: &[&str]) -> (String, u16, bool) {
     let route_address = pick_route_address(tmp_vec);
     let use_vpn_server = connect_via_vpn_server(vec, &route_address);
     let address = if use_vpn_server {
-        vec[1].to_string()
+        match vec.get(1) {
+            Some(a) => a.to_string(),
+            None => return (String::new(), 0, true),
+        }
     } else {
         route_address.unwrap()
     };
@@ -70,7 +73,7 @@ impl UdpOutboundHandler for Handler {
     type Datagram = AnyOutboundDatagram;
 
     fn connect_addr(&self) -> Option<OutboundConnect> {
-        let tmp_vec: Vec<&str> = self.password.split("M").collect();
+        let tmp_vec: Vec<&str> = self.password.splitn(2, "M").collect();
         let tmp_pass = tmp_vec[0].to_string();
         let vec: Vec<&str> = tmp_pass.split("-").collect();
         let (address, port, _) = select_connect_addr(&vec, &tmp_vec);
@@ -87,12 +90,18 @@ impl UdpOutboundHandler for Handler {
         sess: &'a Session,
         transport: Option<OutboundTransport<Self::UStream, Self::Datagram>>,
     ) -> io::Result<Self::Datagram> {
-        let tmp_vec: Vec<&str> = self.password.split("M").collect();
+        let tmp_vec: Vec<&str> = self.password.splitn(2, "M").collect();
         let tmp_pass = tmp_vec[0].to_string();
         let vec: Vec<&str> = tmp_pass.split("-").collect();
+        if vec.len() < 5 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ss password format"));
+        }
         let (address, port, use_vpn_server) = select_connect_addr(&vec, &tmp_vec);
+        if address.is_empty() {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "no valid ss address"));
+        }
         let mut tmp_vpn_ip = 0;
-        let mut tmp_vpn_port = vec[2].parse::<u16>().unwrap();
+        let mut tmp_vpn_port = vec[2].parse::<u16>().unwrap_or(0);
         if (use_vpn_server) {
             tmp_vpn_port = 0;
         } else {
