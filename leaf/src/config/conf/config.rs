@@ -345,7 +345,7 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
         // extract key-value params
         // let params = &params[2..];
         for param in &params {
-            let parts: Vec<&str> = param.split('=').map(str::trim).collect();
+            let parts: Vec<&str> = param.splitn(2, '=').map(str::trim).collect();
             if parts.len() != 2 {
                 continue;
             }

@@ -1,29 +1,21 @@
-use std::{
-    ffi,
-    io::{self, Write},
-};
+use std::io::{self, Write};
 
 use bytes::BytesMut;
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-extern "C" {
-    fn leaf_mobile_log(message: *const ffi::c_char);
-}
-
-#[cfg(any(target_os = "ios", target_os = "macos"))]
-fn log_out(data: &[u8]) {
-    let s = match ffi::CString::new(data) {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-    unsafe {
-        leaf_mobile_log(s.as_ptr());
-    }
-}
+fn log_out(_data: &[u8]) {}
 
 #[cfg(target_os = "android")]
 fn log_out(data: &[u8]) {
-    let _ = ffi::CString::new(data);
+    use std::ffi::CString;
+    if let (Ok(tag), Ok(msg)) = (CString::new("LeafRust"), CString::new(data)) {
+        extern "C" {
+            fn __android_log_write(prio: i32, tag: *const std::os::raw::c_char, text: *const std::os::raw::c_char) -> i32;
+        }
+        unsafe {
+            __android_log_write(4, tag.as_ptr(), msg.as_ptr());
+        }
+    }
 }
 
 pub struct ConsoleWriter(pub BytesMut);
@@ -41,16 +33,17 @@ impl Write for ConsoleWriter {
         self.0.extend_from_slice(buf);
         while let Some(i) = memchr::memchr(b'\n', &self.0) {
             let line = self.0.split_to(i + 1);
-            log_out(&line);
+            let trimmed = line.iter().rposition(|&b| b != b'\n' && b != b'\r' && b != b' ')
+                .map(|i| &line[..=i])
+                .unwrap_or(&[]);
+            if !trimmed.is_empty() {
+                log_out(trimmed);
+            }
         }
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        if !self.0.is_empty() {
-            log_out(&self.0);
-            self.0.clear();
-        }
         Ok(())
     }
 }

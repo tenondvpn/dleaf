@@ -10,11 +10,11 @@ use async_trait::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::DateTime;
 use chrono::Local;
+use sha2::{Digest, Sha256};
 use rand::distributions::Alphanumeric;
 use rand::thread_rng;
 use rand::Rng;
-use sha2::{Digest, Sha256};
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::Ipv4Addr;
 use tokio::io::AsyncWriteExt;
 
 pub struct Handler {
@@ -48,7 +48,17 @@ fn connect_via_vpn_server(vec: &[&str], route_address: &Option<String>) -> bool 
     route_address.is_none() || (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0)
 }
 
+fn via_connector(tmp_vec: &[&str]) -> bool {
+    tmp_vec.get(1)
+        .and_then(|s| s.split("C").nth(1))
+        .map(|flag| flag == "udp_via_connector=1")
+        .unwrap_or(false)
+}
+
 fn select_connect_addr(vec: &[&str], tmp_vec: &[&str]) -> (String, u16, bool) {
+    if via_connector(tmp_vec) {
+        return ("127.0.0.1".to_string(), 1091, true);
+    }
     let route_address = pick_route_address(tmp_vec);
     let use_vpn_server = connect_via_vpn_server(vec, &route_address);
     let address = if use_vpn_server {
@@ -68,22 +78,10 @@ fn select_connect_addr(vec: &[&str], tmp_vec: &[&str]) -> (String, u16, bool) {
     (address, port, use_vpn_server)
 }
 
-fn is_loopback_address(address: &str) -> bool {
-    address == "localhost"
-        || address
-            .parse::<IpAddr>()
-            .map(|ip| ip.is_loopback())
-            .unwrap_or(false)
-}
-
 #[async_trait]
 impl TcpOutboundHandler for Handler {
     type Stream = AnyStream;
     fn connect_addr(&self) -> Option<OutboundConnect> {
-        if is_loopback_address(&self.address) {
-            return Some(OutboundConnect::Proxy(self.address.clone(), self.port));
-        }
-
         let tmp_vec: Vec<&str> = self.password.splitn(2, "M").collect();
         let tmp_pass = tmp_vec[0].to_string();
         let vec: Vec<&str> = tmp_pass.split("-").collect();
@@ -102,9 +100,6 @@ impl TcpOutboundHandler for Handler {
         let tmp_vec: Vec<&str> = self.password.splitn(2, "M").collect();
         let tmp_pass = tmp_vec[0].to_string();
         let vec: Vec<&str> = tmp_pass.split("-").collect();
-        if vec.len() < 5 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ss password format"));
-        }
         let tmp_ps = vec[0].to_string();
         let address = vec[1].to_string();
         let (_, _, use_vpn_server) = select_connect_addr(&vec, &tmp_vec);
@@ -123,8 +118,7 @@ impl TcpOutboundHandler for Handler {
             let tmp_pk_str = hex::decode(tmp_pk[4..70].to_string()).expect("Decoding failed");
             let mut hasher = Sha256::new();
             hasher.update(&tmp_pk_str.clone());
-            let result = hasher.finalize();
-            let result_str = hex::encode(result);
+            let result_str = hex::encode(hasher.finalize());
             common::sync_valid_routes::SetResponseHash(address.clone(), result_str);
         }
 

@@ -47,7 +47,20 @@ fn connect_via_vpn_server(vec: &[&str], route_address: &Option<String>) -> bool 
     route_address.is_none() || (vec.len() >= 8 && vec[7].parse::<u32>().unwrap() != 0)
 }
 
+fn udp_via_connector(tmp_vec: &[&str]) -> bool {
+    // password format: ...M<routes>Cudp_via_connector=1
+    // "C" separator splits routes from the flag inside tmp_vec[1]
+    tmp_vec.get(1)
+        .and_then(|s| s.split("C").nth(1))
+        .map(|flag| flag == "udp_via_connector=1")
+        .unwrap_or(false)
+}
+
 fn select_connect_addr(vec: &[&str], tmp_vec: &[&str]) -> (String, u16, bool) {
+    // If udp_via_connector flag is set, route UDP through local p2p connector
+    if udp_via_connector(tmp_vec) {
+        return ("127.0.0.1".to_string(), 1091, false);
+    }
     let route_address = pick_route_address(tmp_vec);
     let use_vpn_server = connect_via_vpn_server(vec, &route_address);
     let address = if use_vpn_server {
@@ -100,9 +113,14 @@ impl UdpOutboundHandler for Handler {
         if address.is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "no valid ss address"));
         }
+        let via_connector = udp_via_connector(&tmp_vec);
         let mut tmp_vpn_ip = 0;
         let mut tmp_vpn_port = vec[2].parse::<u16>().unwrap_or(0);
-        if (use_vpn_server) {
+        if via_connector {
+            // connector handles routing; don't set vpn_ip/vpn_port header
+            tmp_vpn_ip = 0;
+            tmp_vpn_port = 0;
+        } else if use_vpn_server {
             tmp_vpn_port = 0;
         } else {
             let addr: Ipv4Addr = vec[1].to_string().parse().unwrap();
@@ -118,11 +136,11 @@ impl UdpOutboundHandler for Handler {
             return Err(io::Error::new(io::ErrorKind::Other, "invalid input"));
         };
 
-        let tmp_ps = vec[0].to_string(); // String::from("36e9bdb0e851b567016b2f4dbe6a72f08edb3922d82e09c94b48f26392a39a81");
+        let tmp_ps = vec[0].to_string();
         let tmp_pk = vec[3];
         let tmp_ver = vec[4];
-        let mut tmp_ex_route_ip = 0;
-        let mut tmp_ex_route_port = 0;
+        let tmp_ex_route_ip = 0;
+        let tmp_ex_route_port = 0;
         let dgram = ShadowedDatagram::new(&self.cipher, &tmp_ps)?;
         let destination = match &sess.destination {
             SocksAddr::Domain(domain, port) => {
@@ -256,10 +274,9 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         }
 
         let decode_hash = hex::decode(ex_hash).expect("Decoding failed");
-        let mut all_len = 32 + n2 + 1 + 32;
-        let mut buffer1 = BytesMut::with_capacity(all_len as usize);
+        let mut buffer1 = BytesMut::with_capacity(32 + n2 as usize + 1 + 32);
         let mut head_size = 0;
-        if (self.vpn_port != 0) {
+        if self.vpn_port != 0 {
             buffer1.put_u32(self.vpn_ip);
             buffer1.put_u16(self.vpn_port);
             head_size += 6;
@@ -273,7 +290,7 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             .collect();
         buffer1.put_slice(rand_string[..].as_bytes());
         buffer1.put_slice(&decode_hash);
-        if (self.vpn_port != 0) {
+        if self.vpn_port != 0 {
             buffer1.put_u8(25);
             buffer1.put_u32(self.vpn_ip);
             buffer1.put_u16(self.vpn_port);
