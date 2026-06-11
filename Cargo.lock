@@ -1183,9 +1183,9 @@ dependencies = [
 
 [[package]]
 name = "ipnet"
-version = "2.5.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "879d54834c8c76457ef4293a689b2a8c59b076067ad77b15efafbb05f92a592b"
+checksum = "35e70ee094dc02fd9c13fdad4940090f22dbd6ac7c9e7094a46cf0232a50bc7c"
 
 [[package]]
 name = "ipnetwork"
@@ -3069,8 +3069,6 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 [[package]]
 name = "tun"
 version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a1527bfc1f78acb1287bbd132ee44bdbf9d064c9f3ca176cb2635253f891f76"
 dependencies = [
  "bytes 1.11.1",
  "cfg-if 1.0.0",

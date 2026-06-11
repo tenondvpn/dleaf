@@ -11,6 +11,7 @@ default-members = ["leaf-bin"]
 [patch.crates-io]
 ntapi = { path = "patches/ntapi-0.3.7" }
 tokio = { path = "patches/tokio-1.48.0" }
+tun = { path = "patches/tun-0.8.4" }
 
 [patch."https://github.com/eycorsican/netstack-lwip.git"]
 netstack-lwip = { path = "patches/netstack-lwip-0.3.1" }
