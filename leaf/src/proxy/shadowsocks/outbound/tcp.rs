@@ -50,8 +50,7 @@ fn connect_via_vpn_server(vec: &[&str], route_address: &Option<String>) -> bool 
 
 fn via_connector(tmp_vec: &[&str]) -> bool {
     tmp_vec.get(1)
-        .and_then(|s| s.split("C").nth(1))
-        .map(|flag| flag == "udp_via_connector=1")
+        .map(|s| s.contains("tcp_via_connector=1"))
         .unwrap_or(false)
 }
 
