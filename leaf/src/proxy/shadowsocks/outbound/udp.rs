@@ -263,17 +263,28 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         } else {
             self.address.clone()
         };
-        let mut ex_hash = common::sync_valid_routes::GetResponseHash(hash_address.clone());
-        if ex_hash.is_empty() {
-            let tmp_pk = common::sync_valid_routes::GetClientPk().to_string();
-            let tmp_pk_str = hex::decode(tmp_pk[4..70].to_string()).expect("Decoding failed");
-            let mut hasher = Sha256::new();
-            hasher.update(&tmp_pk_str);
-            ex_hash = hex::encode(hasher.finalize());
-            common::sync_valid_routes::SetResponseHash(hash_address, ex_hash.clone());
-        }
 
-        let decode_hash = hex::decode(ex_hash).expect("Decoding failed");
+        // Use res_hash (32 bytes) only after TCP has established a session with the server
+        // (GetResponseStatus=true means server has cached our pubkey). On first UDP packet,
+        // fall back to full 33-byte pubkey so server can build the ECDH key and cache it.
+        let pk_bytes: Vec<u8>;
+        let use_hash = common::sync_valid_routes::GetResponseStatus(hash_address.clone());
+        if use_hash {
+            let mut ex_hash = common::sync_valid_routes::GetResponseHash(hash_address.clone());
+            if ex_hash.is_empty() {
+                let tmp_pk = common::sync_valid_routes::GetClientPk().to_string();
+                let tmp_pk_str = hex::decode(tmp_pk[4..70].to_string()).expect("Decoding failed");
+                let mut hasher = Sha256::new();
+                hasher.update(&tmp_pk_str);
+                ex_hash = hex::encode(hasher.finalize());
+                common::sync_valid_routes::SetResponseHash(hash_address, ex_hash.clone());
+            }
+            pk_bytes = hex::decode(ex_hash).expect("Decoding failed");
+        } else {
+            // First connection: send full compressed pubkey (33 bytes) so server can ECDH
+            let tmp_pk = common::sync_valid_routes::GetClientPk().to_string();
+            pk_bytes = hex::decode(tmp_pk[4..70].to_string()).expect("Decoding failed");
+        }
         let mut buffer1 = BytesMut::with_capacity(32 + n2 as usize + 1 + 32);
         let mut head_size = 0;
         if self.vpn_port != 0 {
@@ -289,7 +300,7 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             .map(char::from)
             .collect();
         buffer1.put_slice(rand_string[..].as_bytes());
-        buffer1.put_slice(&decode_hash);
+        buffer1.put_slice(&pk_bytes);
         if self.vpn_port != 0 {
             buffer1.put_u8(25);
             buffer1.put_u32(self.vpn_ip);
