@@ -158,6 +158,12 @@ pub extern "C" fn leaf_shutdown(rt_id: u16) -> bool {
     leaf::shutdown(rt_id)
 }
 
+/// Returns whether a leaf runtime instance is active.
+#[no_mangle]
+pub extern "C" fn leaf_is_running(rt_id: u16) -> bool {
+    leaf::is_running(rt_id)
+}
+
 /// Pre-creates the Windows TUN session so a later leaf_run can reuse it.
 ///
 /// This does not start leaf routing. It only holds the adapter/session open

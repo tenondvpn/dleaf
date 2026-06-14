@@ -225,6 +225,22 @@ lazy_static! {
     pub static ref DEFAULT_TUN_IPV6_PREFIXLEN: i32 = {
         get_env_var_or("DEFAULT_TUN_IPV6_PREFIXLEN", 64)
     };
+
+    /// When true, dleaf routes same-country destinations to PAC_DIRECT_TAG before
+    /// config rules, bypassing VPN / p2pconnector outbounds.
+    pub static ref PAC_MODE: bool = {
+        get_env_var_or("PAC_MODE", false)
+    };
+
+    /// ISO country code for the client (e.g. CN, US). Required when PAC_MODE is on.
+    pub static ref LOCAL_COUNTRY: String = {
+        get_env_var_or("LOCAL_COUNTRY", "".to_string())
+    };
+
+    /// Outbound tag used for PAC same-country direct forwarding.
+    pub static ref PAC_DIRECT_TAG: String = {
+        get_env_var_or("PAC_DIRECT_TAG", "Direct".to_string())
+    };
 }
 
 pub fn outbound_binds() -> Vec<crate::proxy::OutboundBind> {

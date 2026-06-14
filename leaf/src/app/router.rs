@@ -1,4 +1,8 @@
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufReader;
+use std::net::IpAddr;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -10,7 +14,8 @@ use maxminddb::geoip2::Country;
 use memmap2::Mmap;
 
 use crate::app::SyncDnsClient;
-use crate::config::{self, Router_Rule};
+use crate::config::{self, geosite, Router_Rule};
+use crate::option;
 use crate::session::{Network, Session, SocksAddr};
 
 pub trait Condition: Send + Sync + Unpin {
@@ -416,6 +421,140 @@ pub struct Router {
     rules: Vec<Rule>,
     domain_resolve: bool,
     dns_client: SyncDnsClient,
+    pac_enabled: bool,
+    pac_local_country: String,
+    pac_direct_tag: String,
+    pac_mmdb: Option<Arc<maxminddb::Reader<Mmap>>>,
+    pac_site_matcher: Option<Box<dyn Condition>>,
+}
+
+fn ip_in_country(reader: &maxminddb::Reader<Mmap>, ip: IpAddr, country_code: &str) -> bool {
+    if let Ok(country) = reader.lookup::<Country>(ip) {
+        if let Some(country) = country.country {
+            if let Some(iso_code) = country.iso_code {
+                return iso_code.eq_ignore_ascii_case(country_code);
+            }
+        }
+    }
+    false
+}
+
+fn load_pac_site_matcher(local_country: &str) -> Option<Box<dyn Condition>> {
+    let asset_loc = Path::new(&*option::ASSET_LOCATION);
+    let candidates = [
+        asset_loc.join("site.dat"),
+        asset_loc.join("leaf_assets").join("site.dat"),
+    ];
+    let path = candidates
+        .iter()
+        .find(|path| path.is_file())
+        .cloned()
+        .unwrap_or_else(|| asset_loc.join("site.dat"));
+    let file = match File::open(&path) {
+        Ok(f) => f,
+        Err(e) => {
+            warn!("PAC mode: open site.dat {:?} failed: {:?}", path, e);
+            return None;
+        }
+    };
+
+    let tag = local_country.to_uppercase();
+    let mut domains = protobuf::RepeatedField::<config::Router_Rule_Domain>::new();
+    let mut reader = BufReader::with_capacity(2048, file);
+    let mut input = protobuf::CodedInputStream::new(&mut reader);
+    let load_result: Result<()> = (|| {
+        while !input.eof()? {
+            let _ = input.read_raw_byte()?;
+            let mut site_group = input.read_message::<geosite::SiteGroup>()?;
+            if site_group.tag != tag {
+                continue;
+            }
+            for domain in site_group.domain.iter() {
+                let mut domain_rule = config::Router_Rule_Domain::new();
+                domain_rule.value = domain.value.clone();
+                domain_rule.field_type = match domain.field_type {
+                    geosite::Domain_Type::Plain => config::Router_Rule_Domain_Type::PLAIN,
+                    geosite::Domain_Type::Domain => config::Router_Rule_Domain_Type::DOMAIN,
+                    geosite::Domain_Type::Full => config::Router_Rule_Domain_Type::FULL,
+                    geosite::Domain_Type::Regex => continue,
+                };
+                domains.push(domain_rule);
+            }
+        }
+        Ok(())
+    })();
+
+    if let Err(e) = load_result {
+        warn!("PAC mode: load site.dat {:?} failed: {}", path, e);
+    }
+
+    if domains.is_empty() {
+        None
+    } else {
+        Some(Box::new(DomainMatcher::new(&mut domains)))
+    }
+}
+
+fn open_pac_mmdb() -> Option<Arc<maxminddb::Reader<Mmap>>> {
+    let asset_loc = Path::new(&*option::ASSET_LOCATION);
+    let mut candidates = vec![
+        asset_loc.join("geo.mmdb"),
+        asset_loc.join("leaf_assets").join("geo.mmdb"),
+    ];
+    if let Ok(mut exe) = std::env::current_exe() {
+        exe.pop();
+        candidates.push(exe.join("geo.mmdb"));
+    }
+    candidates.dedup();
+
+    for path in candidates {
+        match maxminddb::Reader::open_mmap(&path) {
+            Ok(r) => {
+                info!("PAC mode: loaded geo.mmdb from {:?}", path);
+                return Some(Arc::new(r));
+            }
+            Err(e) => {
+                debug!("PAC mode: geo.mmdb not at {:?}: {:?}", path, e);
+            }
+        }
+    }
+    warn!(
+        "PAC mode: geo.mmdb not found under ASSET_LOCATION={:?}; site.dat rules still apply",
+        asset_loc
+    );
+    None
+}
+
+fn init_pac_bypass() -> (
+    bool,
+    String,
+    String,
+    Option<Arc<maxminddb::Reader<Mmap>>>,
+    Option<Box<dyn Condition>>,
+) {
+    if !*option::PAC_MODE || option::LOCAL_COUNTRY.is_empty() {
+        return (false, String::new(), String::new(), None, None);
+    }
+
+    let local_country = option::LOCAL_COUNTRY.clone();
+    let direct_tag = option::PAC_DIRECT_TAG.clone();
+    let mmdb = open_pac_mmdb();
+    let site_matcher = load_pac_site_matcher(&local_country);
+    if mmdb.is_none() && site_matcher.is_none() {
+        warn!(
+            "PAC mode disabled: neither geo.mmdb nor site.dat rules available under ASSET_LOCATION={:?}",
+            &*option::ASSET_LOCATION
+        );
+        return (false, String::new(), String::new(), None, None);
+    }
+    info!(
+        "PAC mode enabled: local_country={} direct_tag={} mmdb={} site_rules={}",
+        local_country,
+        direct_tag,
+        mmdb.is_some(),
+        site_matcher.is_some()
+    );
+    (true, local_country, direct_tag, mmdb, site_matcher)
 }
 
 impl Router {
@@ -487,10 +626,17 @@ impl Router {
             Self::load_rules(&mut rules, &mut router.rules);
             domain_resolve = router.domain_resolve;
         }
+        let (pac_enabled, pac_local_country, pac_direct_tag, pac_mmdb, pac_site_matcher) =
+            init_pac_bypass();
         Router {
             rules,
             domain_resolve,
             dns_client,
+            pac_enabled,
+            pac_local_country,
+            pac_direct_tag,
+            pac_mmdb,
+            pac_site_matcher,
         }
     }
 
@@ -507,10 +653,20 @@ impl Router {
     }
 
     pub async fn pick_route(&self, sess: &Session) -> Result<&String> {
+        // Explicit domain/IP rules (e.g. GFW-blocked proxy_suffixes) must win over
+        // PAC geo bypass, otherwise poisoned DNS can send github.com Direct in CN.
         for rule in &self.rules {
             if rule.apply(sess) {
                 return Ok(&rule.target);
             }
+        }
+
+        if self.pac_enabled && self.pac_should_direct(sess).await {
+            debug!(
+                "[PAC] direct {} (same country as {})",
+                sess.destination, self.pac_local_country
+            );
+            return Ok(&self.pac_direct_tag);
         }
         if sess.destination.is_domain() && self.domain_resolve {
             let ips = {
@@ -538,9 +694,42 @@ impl Router {
                         return Ok(&rule.target);
                     }
                 }
+                // Use the original domain session for PAC site matching. Never treat
+                // poisoned resolved CN IPs as domestic direct.
+                if self.pac_enabled && self.pac_should_direct(sess).await {
+                    debug!(
+                        "[PAC] direct {} (same country as {})",
+                        sess.destination, self.pac_local_country
+                    );
+                    return Ok(&self.pac_direct_tag);
+                }
             }
         }
         Err(anyhow!("no matching rules"))
+    }
+
+    async fn pac_should_direct(&self, sess: &Session) -> bool {
+        if let Some(matcher) = self.pac_site_matcher.as_ref() {
+            if matcher.apply(sess) {
+                return true;
+            }
+        }
+
+        // Domains that miss site.dat must fall through to explicit rules/FINAL.
+        // DNS+MMDB here caused GFW-blocked sites to go Direct on poisoned CN IPs.
+        if sess.destination.is_domain() {
+            return false;
+        }
+
+        if let Some(reader) = self.pac_mmdb.as_ref() {
+            if let Some(ip) = sess.destination.ip() {
+                if ip_in_country(reader, ip, &self.pac_local_country) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 }
 
