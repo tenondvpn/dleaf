@@ -392,8 +392,15 @@ pub async fn new_udp_socket(indicator: &SocketAddr) -> io::Result<UdpSocket> {
     };
     socket.set_nonblocking(true)?;
 
+    // On Windows, OUTBOUND_INTERFACE may be set to a physical NIC IP to force
+    // TCP connects away from the TUN. For UDP we must bind to 0.0.0.0 so that
+    // responses from any interface (including the TUN) can be received.
+    #[cfg(target_os = "windows")]
+    bind_socket(&socket, &*option::UNSPECIFIED_BIND_ADDR).await?;
+
     // If the proxy request is coming from an inbound listens on the loopback,
     // the indicator could be a loopback address, we must ignore it.
+    #[cfg(not(target_os = "windows"))]
     if indicator.ip().is_loopback() || *option::ENABLE_IPV6 {
         bind_socket(&socket, &*option::UNSPECIFIED_BIND_ADDR).await?;
     } else {
