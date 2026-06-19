@@ -23,7 +23,7 @@ use std::os::windows::io::AsRawSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
 use winapi::um::winsock2::{setsockopt, WSAGetLastError};
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 use {
     std::os::unix::io::RawFd, tokio::io::AsyncReadExt, tokio::io::AsyncWriteExt,
     tokio::net::UnixStream,
@@ -135,7 +135,7 @@ pub enum OutboundBind {
     Interface(String),
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 async fn protect_socket(fd: RawFd) -> io::Result<()> {
     // TODO Warns about empty protect path?
     if let Some(addr) = &*option::SOCKET_PROTECT_SERVER {
@@ -246,7 +246,8 @@ fn bind_socket_to_windows_interface<T: AsRawSocket>(
     Ok(index)
 }
 
-async fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Result<()> {
+#[cfg(unix)]
+async fn bind_socket<T: BindSocket + AsRawFd>(socket: &T, indicator: &SocketAddr) -> io::Result<()> {
     match indicator.ip() {
         IpAddr::V4(v4) if v4.is_loopback() => {
             socket.bind(&SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0).into())?;
@@ -265,7 +266,7 @@ async fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::R
     for bind in outbound_binds.iter() {
         match bind {
             OutboundBind::Interface(iface) => {
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
                 unsafe {
                     let ifa = CString::new(iface.as_bytes()).unwrap();
                     let ifidx: libc::c_uint = libc::if_nametoindex(ifa.as_ptr());
@@ -347,7 +348,7 @@ async fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::R
                         }
                     }
                 }
-                #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+                #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux", windows)))]
                 {
                     return Err(io::Error::new(
                         io::ErrorKind::Other,
@@ -377,10 +378,97 @@ async fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::R
     }))
 }
 
+#[cfg(windows)]
+async fn bind_socket<T: BindSocket + AsRawSocket>(socket: &T, indicator: &SocketAddr) -> io::Result<()> {
+    match indicator.ip() {
+        IpAddr::V4(v4) if v4.is_loopback() => {
+            socket.bind(&SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0).into())?;
+            trace!("socket bind loopback v4");
+            return Ok(());
+        }
+        IpAddr::V6(v6) if v6.is_loopback() => {
+            socket.bind(&SocketAddrV6::new("::1".parse().unwrap(), 0, 0, 0).into())?;
+            trace!("socket bind loopback v6");
+            return Ok(());
+        }
+        _ => {}
+    }
+    let mut last_err = None;
+    let outbound_binds = option::outbound_binds();
+    for bind in outbound_binds.iter() {
+        match bind {
+            OutboundBind::Interface(iface) => match bind_socket_to_windows_interface(socket, iface, indicator) {
+                Ok(index) => {
+                    if !WINDOWS_INTERFACE_BIND_LOGGED.swap(true, Ordering::Relaxed) {
+                        info!(
+                            "Windows outbound socket binding active: interface {} ({})",
+                            iface, index
+                        );
+                    } else {
+                        trace!(
+                            "socket bound to Windows interface {} ({}) for {}",
+                            iface,
+                            index,
+                            indicator
+                        );
+                    }
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    continue;
+                }
+            },
+            OutboundBind::Ip(addr) => {
+                if (addr.is_ipv4() && indicator.is_ipv4())
+                    || (addr.is_ipv6() && indicator.is_ipv6())
+                {
+                    if let Err(e) = socket.bind(addr) {
+                        last_err = Some(e);
+                        continue;
+                    }
+                    trace!("socket bind {}", addr);
+                    return Ok(());
+                }
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "could not bind to any address or interface",
+        )
+    }))
+}
+
+fn is_loopback_proxy_host(host: &str) -> bool {
+    host == "127.0.0.1" || host == "localhost" || host == "::1"
+}
+
+fn udp_bind_indicator(sess_source: &SocketAddr, proxy_host: Option<&str>) -> SocketAddr {
+    if proxy_host.map(is_loopback_proxy_host).unwrap_or(false) {
+        // Match TCP dial to local connector: bind loopback so OUTBOUND_INTERFACE
+        // (PAC/IP_BOUND_IF) does not send 127.0.0.1 traffic out en0.
+        return SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+    }
+    *sess_source
+}
+
 // New UDP socket.
 pub async fn new_udp_socket(indicator: &SocketAddr) -> io::Result<UdpSocket> {
+    new_udp_socket_with_proxy(indicator, None).await
+}
+
+async fn new_udp_socket_with_proxy(
+    indicator: &SocketAddr,
+    proxy_host: Option<&str>,
+) -> io::Result<UdpSocket> {
     use socket2::{Domain, Socket, Type};
-    let socket = if *option::ENABLE_IPV6 {
+    let loopback_proxy = proxy_host.map(is_loopback_proxy_host).unwrap_or(false);
+    let socket = if loopback_proxy || indicator.ip().is_loopback() {
+        // Local connector is IPv4 loopback; avoid IPv6 dual-stack bind quirks on iOS.
+        Socket::new(Domain::IPV4, Type::DGRAM, None)?
+    } else if *option::ENABLE_IPV6 {
         // Dual-stack socket.
         // FIXME Windows IPV6_V6ONLY?
         Socket::new(Domain::IPV6, Type::DGRAM, None)?
@@ -401,14 +489,23 @@ pub async fn new_udp_socket(indicator: &SocketAddr) -> io::Result<UdpSocket> {
     // If the proxy request is coming from an inbound listens on the loopback,
     // the indicator could be a loopback address, we must ignore it.
     #[cfg(not(target_os = "windows"))]
-    if indicator.ip().is_loopback() || *option::ENABLE_IPV6 {
+    if indicator.ip().is_loopback() {
+        bind_socket(&socket, indicator).await?;
+    } else if *option::ENABLE_IPV6 {
         bind_socket(&socket, &*option::UNSPECIFIED_BIND_ADDR).await?;
     } else {
         bind_socket(&socket, indicator).await?;
     }
 
-    #[cfg(target_os = "android")]
-    protect_socket(socket.as_raw_fd()).await?;
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    if loopback_proxy || indicator.ip().is_loopback() {
+        info!(
+            "[LEAF-PERF][PROXY][UDP] skip protect for loopback proxy {}",
+            proxy_host.unwrap_or("127.0.0.1")
+        );
+    } else {
+        protect_socket(socket.as_raw_fd()).await?;
+    }
 
     UdpSocket::from_std(socket.into())
 }
@@ -438,7 +535,7 @@ async fn tcp_dial_task(dial_addr: SocketAddr) -> io::Result<(AnyStream, SocketAd
 
     bind_socket(&socket, &dial_addr).await?;
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     if dial_addr.ip().is_loopback() {
         info!(
             "[LEAF-PERF][PROXY][TCP] skip protect for loopback dial {}",
@@ -531,11 +628,12 @@ pub async fn connect_udp_outbound(
         Some(OutboundConnect::Proxy(addr, port)) => {
             match UdpOutboundHandler::transport_type(handler.as_ref()) {
                 DatagramTransportType::Datagram => {
+                    let bind_indicator = udp_bind_indicator(&sess.source, Some(&addr));
                     info!(
-                        "[LEAF-PERF][PROXY][UDP] proxy datagram socket source={} proxy={}:{}",
-                        sess.source, addr, port
+                        "[LEAF-PERF][PROXY][UDP] proxy datagram socket source={} bind={} proxy={}:{}",
+                        sess.source, bind_indicator, addr, port
                     );
-                    let socket = new_udp_socket(&sess.source).await?;
+                    let socket = new_udp_socket_with_proxy(&bind_indicator, Some(&addr)).await?;
                     Ok(Some(OutboundTransport::Datagram(Box::new(
                         SimpleOutboundDatagram::new(socket, None, dns_client.clone(), false),
                     ))))

@@ -1,5 +1,6 @@
 use std::net::Ipv4Addr;
 use std::{cmp::min, convert::TryFrom, io, sync::Arc};
+use std::sync::atomic::{AtomicU64, Ordering};
 extern crate rand;
 use crate::common;
 use crate::{
@@ -48,11 +49,10 @@ fn connect_via_vpn_server(vec: &[&str], route_address: &Option<String>) -> bool 
 }
 
 fn udp_via_connector(tmp_vec: &[&str]) -> bool {
-    // password format: ...M<routes>Cudp_via_connector=1
-    // "C" separator splits routes from the flag inside tmp_vec[1]
-    tmp_vec.get(1)
-        .and_then(|s| s.split("C").nth(1))
-        .map(|flag| flag == "udp_via_connector=1")
+    // password format: ...M<routes>Ctcp_via_connector=1Cudp_via_connector=1
+    tmp_vec
+        .get(1)
+        .map(|s| s.contains("udp_via_connector=1"))
         .unwrap_or(false)
 }
 
@@ -114,6 +114,9 @@ impl UdpOutboundHandler for Handler {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "no valid ss address"));
         }
         let via_connector = udp_via_connector(&tmp_vec);
+        if via_connector {
+            info!("[UDP] routing via connector 127.0.0.1:1091");
+        }
         let mut tmp_vpn_ip = 0;
         let mut tmp_vpn_port = vec[2].parse::<u16>().unwrap_or(0);
         if via_connector {
@@ -252,6 +255,20 @@ pub struct DatagramSendHalf {
 #[async_trait]
 impl OutboundDatagramSendHalf for DatagramSendHalf {
     async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
+        static CONNECTOR_UDP_SENDS: AtomicU64 = AtomicU64::new(0);
+        if self.address == "127.0.0.1" {
+            let n = CONNECTOR_UDP_SENDS.fetch_add(1, Ordering::Relaxed) + 1;
+            if n == 1 || n % 100 == 0 {
+                info!(
+                    "[UDP-CONNECTOR] uplink packet {} to {}:{} bytes={} dst={}",
+                    n,
+                    self.address,
+                    self.server_addr.port(),
+                    buf.len(),
+                    target
+                );
+            }
+        }
         let mut buf2 = BytesMut::new();
         target.write_buf(&mut buf2, SocksAddrWireType::PortLast);
         buf2.put_slice(buf);
