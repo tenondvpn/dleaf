@@ -200,10 +200,14 @@ impl TcpOutboundHandler for Handler {
         }
 
         src_stream.write_all(&buffer1).await?;
-        let mut stream = ShadowedStream::new(src_stream, &self.cipher, &tmp_ps)?;
         let mut buf = BytesMut::new();
         sess.destination
             .write_buf(&mut buf, SocksAddrWireType::PortLast);
+        if via_connector(&tmp_vec) {
+            src_stream.write_all(&buf).await?;
+            return Ok(Box::new(src_stream));
+        }
+        let mut stream = ShadowedStream::new(src_stream, &self.cipher, &tmp_ps)?;
         stream.write_all(&buf).await?;
         Ok(Box::new(stream))
     }

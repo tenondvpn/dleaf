@@ -164,6 +164,7 @@ impl UdpOutboundHandler for Handler {
             ex_route_ip: tmp_ex_route_ip,
             ex_route_port: tmp_ex_route_port,
             address: address,
+            plain_passthrough: via_connector,
         }))
     }
 }
@@ -180,6 +181,7 @@ pub struct Datagram {
     pub ex_route_ip: u32,
     pub ex_route_port: u16,
     pub address: String,
+    pub plain_passthrough: bool,
 }
 
 impl OutboundDatagram for Datagram {
@@ -192,7 +194,7 @@ impl OutboundDatagram for Datagram {
         let dgram = Arc::new(self.dgram);
         let (r, s) = self.socket.split();
         (
-            Box::new(DatagramRecvHalf(dgram.clone(), r, self.destination)),
+            Box::new(DatagramRecvHalf(dgram.clone(), r, self.destination, self.plain_passthrough)),
             Box::new(DatagramSendHalf {
                 dgram,
                 send_half: s,
@@ -204,6 +206,7 @@ impl OutboundDatagram for Datagram {
                 ex_route_ip: self.ex_route_ip,
                 ex_route_port: self.ex_route_port,
                 address: self.address,
+                plain_passthrough: self.plain_passthrough,
             }),
         )
     }
@@ -213,6 +216,7 @@ pub struct DatagramRecvHalf(
     Arc<ShadowedDatagram>,
     Box<dyn OutboundDatagramRecvHalf>,
     Option<SocksAddr>,
+    bool,
 );
 
 #[async_trait]
@@ -222,7 +226,11 @@ impl OutboundDatagramRecvHalf for DatagramRecvHalf {
         buf2.resize(2 * 1024, 0);
         let (n, _) = self.1.recv_from(&mut buf2).await?;
         buf2.resize(n, 0);
-        let plaintext = self.0.decrypt(buf2).map_err(|_| shadow::crypto_err())?;
+        let plaintext = if self.3 {
+            buf2.freeze()
+        } else {
+            self.0.decrypt(buf2).map_err(|_| shadow::crypto_err())?
+        };
         let src_addr = SocksAddr::try_from((&plaintext[..], SocksAddrWireType::PortLast))?;
         let payload_len = plaintext.len() - src_addr.size();
         let to_write = min(payload_len, buf.len());
@@ -250,6 +258,7 @@ pub struct DatagramSendHalf {
     ex_route_ip: u32,
     ex_route_port: u16,
     address: String,
+    plain_passthrough: bool,
 }
 
 #[async_trait]
@@ -272,7 +281,11 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         let mut buf2 = BytesMut::new();
         target.write_buf(&mut buf2, SocksAddrWireType::PortLast);
         buf2.put_slice(buf);
-        let ciphertext = self.dgram.encrypt(buf2).map_err(|_| shadow::crypto_err())?;
+        let payload = if self.plain_passthrough {
+            buf2.freeze()
+        } else {
+            self.dgram.encrypt(buf2).map_err(|_| shadow::crypto_err())?
+        };
         let n2: u8 = thread_rng().gen_range(6..16);
 
         let hash_address = if self.vpn_port != 0 {
@@ -327,9 +340,9 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         }
 
         buffer1.put_slice(self.ver[..].as_bytes());
-        let mut buffer = BytesMut::with_capacity(ciphertext.len() + buffer1.len());
+        let mut buffer = BytesMut::with_capacity(payload.len() + buffer1.len());
         buffer.put_slice(&buffer1);
-        buffer.put_slice(&ciphertext);
+        buffer.put_slice(&payload);
         let mut i = 0;
         let pos: usize = head_size + (n2 as usize / 2);
         while i != buffer.len() {
