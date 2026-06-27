@@ -56,6 +56,22 @@ fn udp_via_connector(tmp_vec: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
+fn strip_connector_flags(s: &str) -> &str {
+    let s = s.split("Ctcp").next().unwrap_or(s);
+    s.split("Cudp").next().unwrap_or(s)
+}
+
+fn is_p2p_routes(vec: &[&str], tmp_vec: &[&str]) -> bool {
+    let vpn_ip = vec.get(1).copied().unwrap_or("");
+    let routes = tmp_vec.get(1).copied().unwrap_or("");
+    strip_connector_flags(routes)
+        .split('N')
+        .any(|route| {
+            let route = route.trim();
+            !route.is_empty() && route != vpn_ip && route.parse::<Ipv4Addr>().is_ok()
+        })
+}
+
 fn select_connect_addr(vec: &[&str], tmp_vec: &[&str]) -> (String, u16, bool) {
     // If udp_via_connector flag is set, route UDP through local p2p connector
     if udp_via_connector(tmp_vec) {
@@ -120,9 +136,13 @@ impl UdpOutboundHandler for Handler {
         let mut tmp_vpn_ip = 0;
         let mut tmp_vpn_port = vec[2].parse::<u16>().unwrap_or(0);
         if via_connector {
-            // connector handles routing; don't set vpn_ip/vpn_port header
-            tmp_vpn_ip = 0;
-            tmp_vpn_port = 0;
+            // P2P via connector still needs vpn_server target in the route relay header.
+            if is_p2p_routes(&vec, &tmp_vec) {
+                let addr: Ipv4Addr = vec[1].to_string().parse().unwrap();
+                tmp_vpn_ip = addr.into();
+                tmp_vpn_port =
+                    common::sync_valid_routes::get_port_with_ip(vec[1].to_string(), 10000, 35000);
+            }
         } else if use_vpn_server {
             tmp_vpn_port = 0;
         } else {

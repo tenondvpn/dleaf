@@ -54,9 +54,30 @@ fn via_connector(tmp_vec: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
+fn strip_connector_flags(s: &str) -> &str {
+    let s = s.split("Ctcp").next().unwrap_or(s);
+    s.split("Cudp").next().unwrap_or(s)
+}
+
+// P2P mode lists route node IPs distinct from the vpn_server IP in the password suffix.
+fn is_p2p_routes(vec: &[&str], tmp_vec: &[&str]) -> bool {
+    let vpn_ip = vec.get(1).copied().unwrap_or("");
+    let routes = tmp_vec.get(1).copied().unwrap_or("");
+    strip_connector_flags(routes)
+        .split('N')
+        .any(|route| {
+            let route = route.trim();
+            !route.is_empty() && route != vpn_ip && route.parse::<Ipv4Addr>().is_ok()
+        })
+}
+
 fn select_connect_addr(vec: &[&str], tmp_vec: &[&str]) -> (String, u16, bool) {
     if via_connector(tmp_vec) {
-        return ("127.0.0.1".to_string(), 1091, true);
+        // P2P transparent: connector lands on vpn_route; relay header must carry
+        // vpn_server IP:port (use_vpn_server=false). Non-P2P: target is vpn_server
+        // inner port and expects the shorter init header (use_vpn_server=true).
+        let use_vpn_server = !is_p2p_routes(vec, tmp_vec);
+        return ("127.0.0.1".to_string(), 1091, use_vpn_server);
     }
     let route_address = pick_route_address(tmp_vec);
     let use_vpn_server = connect_via_vpn_server(vec, &route_address);
