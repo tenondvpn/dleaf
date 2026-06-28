@@ -142,6 +142,10 @@ impl UdpOutboundHandler for Handler {
                 tmp_vpn_ip = addr.into();
                 tmp_vpn_port =
                     common::sync_valid_routes::get_port_with_ip(vec[1].to_string(), 10000, 35000);
+            } else {
+                // Non-P2P transparent: connector VLESS targets vpn_server inner port
+                // directly; omit the 6-byte route relay header (mirrors TCP use_vpn_server).
+                tmp_vpn_port = 0;
             }
         } else if use_vpn_server {
             tmp_vpn_port = 0;
