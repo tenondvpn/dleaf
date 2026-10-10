@@ -443,6 +443,58 @@ pub fn add_host_ipv4_route(
     add_host_ipv4_routes(&[address], gateway, interface)
 }
 
+/// Adds a route for an arbitrary IPv4 prefix (e.g. `192.168.0.0/16`).
+///
+/// Needed because `add_host_ipv4_route` can only express a `/32`: local
+/// subnets such as `192.168.0.0/16` have to be routed away from the TUN as a
+/// single prefix, not enumerated host by host.  `network` must already be the
+/// masked network address.
+pub fn add_prefix_ipv4_route(
+    network: Ipv4Addr,
+    prefix_len: u8,
+    gateway: Ipv4Addr,
+    interface: Option<String>,
+) -> Result<()> {
+    if prefix_len > 32 {
+        return Err(anyhow!("invalid IPv4 prefix length: {}", prefix_len));
+    }
+    let mask = if prefix_len == 0 {
+        0u32
+    } else {
+        u32::MAX << (32 - prefix_len)
+    };
+    let mask = Ipv4Addr::from(mask);
+    let network = Ipv4Addr::from(u32::from(network) & u32::from(mask));
+
+    let index = interface
+        .as_deref()
+        .and_then(|value| get_interface_index(value).ok());
+
+    let mut delete = hidden_command("route.exe");
+    delete
+        .arg("delete")
+        .arg(network.to_string())
+        .arg("mask")
+        .arg(mask.to_string());
+    let _ = run_status(delete);
+
+    let mut add = hidden_command("route.exe");
+    add.arg("add")
+        .arg(network.to_string())
+        .arg("mask")
+        .arg(mask.to_string())
+        .arg(gateway.to_string())
+        // Metric 1 keeps the bypass ahead of the split defaults (metric 2 as
+        // installed by `add_split_ipv4_default_routes`), while the longer
+        // prefix still loses to the interface's own on-link /24 route.
+        .arg("metric")
+        .arg("1");
+    if let Some(index) = index {
+        add.arg("if").arg(index.to_string());
+    }
+    run_status(add)
+}
+
 pub fn delete_host_ipv4_route(address: Ipv4Addr) -> Result<()> {
     let mut command = hidden_command("route.exe");
     command
@@ -450,6 +502,26 @@ pub fn delete_host_ipv4_route(address: Ipv4Addr) -> Result<()> {
         .arg(address.to_string())
         .arg("mask")
         .arg("255.255.255.255");
+    run_status(command)
+}
+
+pub fn delete_prefix_ipv4_route(network: Ipv4Addr, prefix_len: u8) -> Result<()> {
+    if prefix_len > 32 {
+        return Err(anyhow!("invalid IPv4 prefix length: {}", prefix_len));
+    }
+    let mask = if prefix_len == 0 {
+        0u32
+    } else {
+        u32::MAX << (32 - prefix_len)
+    };
+    let mask = Ipv4Addr::from(mask);
+    let network = Ipv4Addr::from(u32::from(network) & u32::from(mask));
+    let mut command = hidden_command("route.exe");
+    command
+        .arg("delete")
+        .arg(network.to_string())
+        .arg("mask")
+        .arg(mask.to_string());
     run_status(command)
 }
 

@@ -214,6 +214,15 @@ lazy_static! {
         get_env_var_or("DEFAULT_TUN_IPV4_MASK", "255.255.255.0".to_string())
     };
 
+    /// DNS servers assigned to the auto-created TUN adapter.  These must be
+    /// reachable from the physical NIC, because the TUN captures all traffic but
+    /// the adapter's DNS lookups are routed to the bypass rules the embedder
+    /// installs.  Defaults to China-reachable resolvers rather than 8.8.8.8,
+    /// which many networks blackhole.
+    pub static ref DEFAULT_TUN_DNS: String = {
+        get_env_var_or("DEFAULT_TUN_DNS", "223.5.5.5,114.114.114.114".to_string())
+    };
+
     pub static ref DEFAULT_TUN_IPV6_ADDR: String = {
         get_env_var_or("DEFAULT_TUN_IPV6_ADDR", "2001:2::2".to_string())
     };

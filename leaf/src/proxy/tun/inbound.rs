@@ -82,18 +82,21 @@ fn configure_auto_tun(cfg: &mut tun::Configuration, include_destination: bool) {
 
     #[cfg(windows)]
     {
-        use std::net::{IpAddr, Ipv4Addr};
+        use std::net::IpAddr;
         cfg.metric(1);
-        cfg.platform_config(|platform| {
+        let dns_servers: Vec<IpAddr> = option::DEFAULT_TUN_DNS
+            .split(',')
+            .filter_map(|s| s.trim().parse::<IpAddr>().ok())
+            .collect();
+        cfg.platform_config(move |platform| {
             if let Ok(exe) = std::env::current_exe() {
                 if let Some(dir) = exe.parent() {
                     platform.wintun_file(dir.join("wintun.dll").into_os_string());
                 }
             }
-            platform.dns_servers(&[
-                IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
-                IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
-            ]);
+            if !dns_servers.is_empty() {
+                platform.dns_servers(&dns_servers);
+            }
         });
     }
 

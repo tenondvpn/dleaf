@@ -285,20 +285,48 @@ pub fn post_tun_creation_setup(net_info: &NetInfo) {
 
     if let Ok(bypass) = std::env::var("VPN_BYPASS_IPV4") {
         for item in bypass.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-            if let Ok(address) = item.parse::<Ipv4Addr>() {
-                if let Err(e) = common::cmd::add_host_ipv4_route(
-                    address,
-                    original_gateway,
-                    net_info.default_interface.clone(),
-                ) {
-                    log::warn!("add Windows bypass route for {} failed: {}", address, e);
-                } else {
-                    log::info!(
-                        "Windows bypass route added: {} via gateway {}",
+            // Accept both a bare address (`8.8.8.8` -> /32) and a CIDR
+            // (`192.168.0.0/16`).  The CIDR form is what keeps private subnets
+            // out of the tunnel: the 0.0.0.0/1 + 128.0.0.0/1 split defaults
+            // cover the private ranges too, so without an explicit more-specific
+            // route LAN traffic (NetBIOS broadcasts, mDNS, NAS, printers) is
+            // pulled into FKeyTun and routed "Direct" behind the tunnel, where
+            // it blackholes and piles up UDP NAT sessions until the socket
+            // layer reports WSAENOBUFS.
+            let result = match item.split_once('/') {
+                Some((addr, plen)) => match (addr.trim().parse::<Ipv4Addr>(), plen.trim().parse::<u8>()) {
+                    (Ok(address), Ok(prefix_len)) => common::cmd::add_prefix_ipv4_route(
                         address,
-                        original_gateway
-                    );
-                }
+                        prefix_len,
+                        original_gateway,
+                        net_info.default_interface.clone(),
+                    )
+                    .map(|_| format!("{}/{}", address, prefix_len)),
+                    _ => {
+                        log::warn!("invalid Windows bypass CIDR entry: {}", item);
+                        continue;
+                    }
+                },
+                None => match item.parse::<Ipv4Addr>() {
+                    Ok(address) => common::cmd::add_host_ipv4_route(
+                        address,
+                        original_gateway,
+                        net_info.default_interface.clone(),
+                    )
+                    .map(|_| address.to_string()),
+                    Err(_) => {
+                        log::warn!("invalid Windows bypass entry: {}", item);
+                        continue;
+                    }
+                },
+            };
+            match result {
+                Ok(route) => log::info!(
+                    "Windows bypass route added: {} via gateway {}",
+                    route,
+                    original_gateway
+                ),
+                Err(e) => log::warn!("add Windows bypass route for {} failed: {}", item, e),
             }
         }
     }
@@ -396,10 +424,20 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
 
     if let Ok(bypass) = std::env::var("VPN_BYPASS_IPV4") {
         for item in bypass.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-            if let Ok(address) = item.parse::<Ipv4Addr>() {
-                if let Err(e) = common::cmd::delete_host_ipv4_route(address) {
-                    log::warn!("delete Windows bypass route for {} failed: {}", address, e);
-                }
+            let result = match item.split_once('/') {
+                Some((addr, plen)) => match (addr.trim().parse::<Ipv4Addr>(), plen.trim().parse::<u8>()) {
+                    (Ok(address), Ok(prefix_len)) => {
+                        common::cmd::delete_prefix_ipv4_route(address, prefix_len)
+                    }
+                    _ => continue,
+                },
+                None => match item.parse::<Ipv4Addr>() {
+                    Ok(address) => common::cmd::delete_host_ipv4_route(address),
+                    Err(_) => continue,
+                },
+            };
+            if let Err(e) = result {
+                log::warn!("delete Windows bypass route for {} failed: {}", item, e);
             }
         }
     }

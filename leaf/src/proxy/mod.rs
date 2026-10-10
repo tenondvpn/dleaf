@@ -480,11 +480,18 @@ async fn new_udp_socket_with_proxy(
     };
     socket.set_nonblocking(true)?;
 
-    // On Windows, OUTBOUND_INTERFACE may be set to a physical NIC IP to force
-    // TCP connects away from the TUN. For UDP we must bind to 0.0.0.0 so that
-    // responses from any interface (including the TUN) can be received.
+    // On Windows, OUTBOUND_INTERFACE may be set to a physical NIC index to force
+    // TCP connects away from the TUN. For UDP we normally bind to 0.0.0.0 so that
+    // responses from any interface (including the TUN) can be received, and let
+    // IP_UNICAST_IF steer the source. That steering must NOT be applied when the
+    // proxy is the local connector: bind_socket would push IP_UNICAST_IF=physical
+    // onto a socket that then sends to 127.0.0.1, which drops all connector UDP.
     #[cfg(target_os = "windows")]
-    bind_socket(&socket, &*option::UNSPECIFIED_BIND_ADDR).await?;
+    if loopback_proxy || indicator.ip().is_loopback() {
+        bind_socket(&socket, indicator).await?;
+    } else {
+        bind_socket(&socket, &*option::UNSPECIFIED_BIND_ADDR).await?;
+    }
 
     // If the proxy request is coming from an inbound listens on the loopback,
     // the indicator could be a loopback address, we must ignore it.
