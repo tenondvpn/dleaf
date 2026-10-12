@@ -1,0 +1,83 @@
+[package]
+name = "wintun-bindings"
+version = "0.7.32"
+edition = "2021"
+authors = [
+    "ssrlive",
+    "null.black Inc. <opensource@null.black>",
+    "Troy Neubauer <troy@null.black>",
+]
+repository = "https://github.com/tun2proxy/wintun-bindings"
+readme = "README.md"
+documentation = "https://docs.rs/wintun-bindings/"
+description = "Safe idiomatic bindings to the WinTun C library and more enhancements"
+license = "MIT"
+keywords = ["wintun", "tap", "tun", "vpn", "wireguard"]
+categories = ["api-bindings"]
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = [
+    "aarch64-pc-windows-msvc",
+    "i686-pc-windows-msvc",
+    "x86_64-pc-windows-msvc",
+]
+all-features = true
+
+[features]
+# default = [
+#     "verify_binary_signature",
+#     "panic_on_unsent_packets",
+#     "async",
+#     "winreg",
+#     "enable_inner_logging",
+# ]
+async = ["blocking", "futures"]
+panic_on_unsent_packets = []
+verify_binary_signature = []
+enable_inner_logging = []
+
+[dependencies]
+blocking = { version = "1", optional = true }
+c2rust-bitfields = "0.20"
+futures = { version = "0.3", optional = true }
+libloading = "0.8"
+log = "0.4"
+thiserror = "2"
+windows-sys = { version = "0.60", features = [
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_SystemServices",
+    "Win32_Security_Cryptography",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_System_Threading",
+    "Win32_System_Com",
+    "Win32_System_Rpc",
+    "Win32_Security",
+    "Win32_Foundation",
+    "Win32_System_Ioctl",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_Security_WinTrust",
+] }
+winreg = { version = "0.55", optional = true }
+
+[dev-dependencies]
+dotenvy = "0.15"
+env_logger = "0.11"
+packet = "0.1"
+pcap-file = "2"
+serde_json = "1"
+subprocess = "0.2"
+tokio = { version = "1", features = ["full"] }
+
+[[example]]
+name = "udp-echo-async"
+path = "examples/udp-echo-async.rs"
+required-features = ["async"]
+
+[[example]]
+name = "basic-async"
+path = "examples/basic-async.rs"
+required-features = ["async"]
