@@ -1,5 +1,38 @@
 use std::{ffi::CStr, os::raw::c_char};
 
+// Registers a process-wide Rust panic hook that writes panic info to
+// %TEMP%\fkey_panic_<pid>.log before abort() terminates the process.
+// With panic="abort", abort() bypasses C++ atexit/SEH so without this hook
+// the crash leaves no evidence at all.
+fn install_panic_hook() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        std::panic::set_hook(Box::new(|info| {
+            let pid = std::process::id();
+            let mut path = std::env::temp_dir();
+            path.push(format!("fkey_panic_{}.log", pid));
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true).append(true).open(&path)
+            {
+                use std::io::Write;
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let _ = writeln!(f, "[{now}] RUST PANIC pid={pid}");
+                let _ = writeln!(f, "  {info}");
+                if let Some(loc) = info.location() {
+                    let _ = writeln!(
+                        f, "  at {}:{}:{}",
+                        loc.file(), loc.line(), loc.column()
+                    );
+                }
+            }
+        }));
+    });
+}
+
 /// No error.
 pub const ERR_OK: i32 = 0;
 /// Config path error.
@@ -61,6 +94,7 @@ pub extern "C" fn leaf_run_with_options(
     threads: i32,
     stack_size: i32,
 ) -> i32 {
+    install_panic_hook();
     if let Ok(config_path) = unsafe { CStr::from_ptr(config_path).to_str() } {
         if let Err(e) = leaf::util::run_with_options(
             rt_id,

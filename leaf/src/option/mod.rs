@@ -105,13 +105,15 @@ lazy_static! {
     };
 
     /// Buffer size for uplink and downlink connections, in KB.
+    /// 64 KB covers a full TCP window per read/write cycle; the old 2 KB
+    /// value throttled downloads by forcing thousands of tiny syscalls.
     pub static ref LINK_BUFFER_SIZE: usize = {
-        get_env_var_or("LINK_BUFFER_SIZE", 2)
+        get_env_var_or("LINK_BUFFER_SIZE", 64)
     };
 
     /// Buffer size for UDP datagrams receiving/sending, in KB.
     pub static ref DATAGRAM_BUFFER_SIZE: usize = {
-        get_env_var_or("DATAGRAM_BUFFER_SIZE", 2)
+        get_env_var_or("DATAGRAM_BUFFER_SIZE", 16)
     };
 
     pub static ref OUTBOUND_DIAL_TIMEOUT: u64 = {
