@@ -501,6 +501,14 @@ async fn new_udp_socket_with_proxy(
     } else if *option::ENABLE_IPV6 {
         bind_socket(&socket, &*option::UNSPECIFIED_BIND_ADDR).await?;
     } else {
+        // Android/iOS: bind_socket requires non-empty outbound_binds for non-loopback
+        // addresses. Android doesn't configure OUTBOUND_INTERFACE in SS mode, so
+        // outbound_binds is empty and bind_socket returns an error. Instead, bind
+        // directly to INADDR_ANY:0 — the OS assigns source address/port, and
+        // protect_socket (below) ensures the packet routes via the physical NIC.
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        socket.bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0).into())?;
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         bind_socket(&socket, indicator).await?;
     }
 

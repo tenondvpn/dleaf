@@ -176,6 +176,7 @@ impl UdpOutboundHandler for Handler {
             _ => None,
         };
 
+        let use_aead = tmp_ps == "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
         Ok(Box::new(Datagram {
             dgram,
             socket,
@@ -189,6 +190,7 @@ impl UdpOutboundHandler for Handler {
             ex_route_port: tmp_ex_route_port,
             address: address,
             plain_passthrough: via_connector,
+            use_aead,
         }))
     }
 }
@@ -206,6 +208,7 @@ pub struct Datagram {
     pub ex_route_port: u16,
     pub address: String,
     pub plain_passthrough: bool,
+    pub use_aead: bool,
 }
 
 impl OutboundDatagram for Datagram {
@@ -231,6 +234,7 @@ impl OutboundDatagram for Datagram {
                 ex_route_port: self.ex_route_port,
                 address: self.address,
                 plain_passthrough: self.plain_passthrough,
+                use_aead: self.use_aead,
             }),
         )
     }
@@ -283,6 +287,7 @@ pub struct DatagramSendHalf {
     ex_route_port: u16,
     address: String,
     plain_passthrough: bool,
+    use_aead: bool,
 }
 
 #[async_trait]
@@ -355,12 +360,13 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             .collect();
         buffer1.put_slice(rand_string[..].as_bytes());
         buffer1.put_slice(&pk_bytes);
+        let base_len: u8 = if self.vpn_port != 0 { 25 } else { 19 };
+        // bit7 signals use_aead to the server (server should use debug key for decrypt)
+        let method_len_byte = if self.use_aead { base_len | 0x80 } else { base_len };
+        buffer1.put_u8(method_len_byte);
         if self.vpn_port != 0 {
-            buffer1.put_u8(25);
             buffer1.put_u32(self.vpn_ip);
             buffer1.put_u16(self.vpn_port);
-        } else {
-            buffer1.put_u8(19);
         }
 
         buffer1.put_slice(self.ver[..].as_bytes());
