@@ -131,7 +131,7 @@ impl UdpOutboundHandler for Handler {
         }
         let via_connector = udp_via_connector(&tmp_vec);
         if via_connector {
-            info!("[UDP] routing via connector 127.0.0.1:1091");
+            debug!("[UDP] routing via connector 127.0.0.1:1091");
         }
         let mut tmp_vpn_ip = 0;
         let mut tmp_vpn_port = vec[2].parse::<u16>().unwrap_or(0);
@@ -297,7 +297,7 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         if self.address == "127.0.0.1" {
             let n = CONNECTOR_UDP_SENDS.fetch_add(1, Ordering::Relaxed) + 1;
             if n == 1 || n % 100 == 0 {
-                info!(
+                debug!(
                     "[UDP-CONNECTOR] uplink packet {} to {}:{} bytes={} dst={}",
                     n,
                     self.address,
@@ -315,7 +315,8 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         } else {
             self.dgram.encrypt(buf2).map_err(|_| shadow::crypto_err())?
         };
-        let n2: u8 = thread_rng().gen_range(6..16);
+        let n2_byte: u8 = thread_rng().gen();
+        let n2: u8 = n2_byte % 12 + 4;
 
         let hash_address = if self.vpn_port != 0 {
             Ipv4Addr::from(self.vpn_ip).to_string()
@@ -352,7 +353,7 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             head_size += 6;
         }
 
-        buffer1.put_u8(n2);
+        buffer1.put_u8(n2_byte);
         let rand_string: String = thread_rng()
             .sample_iter(&Alphanumeric)
             .take(n2 as usize)

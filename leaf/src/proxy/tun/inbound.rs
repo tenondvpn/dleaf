@@ -203,14 +203,14 @@ async fn handle_inbound_stream(
         ..Default::default()
     };
     // Whether to override the destination according to Fake DNS.
-    log::info!(
-        "[LEAF-PERF][TUN][TCP] accepted {} -> {}",
+    log::trace!(
+        "[TUN][TCP] accepted {} -> {}",
         local_addr,
         remote_addr
     );
     if is_unproxyable_tun_ip(remote_addr.ip()) {
-        log::info!(
-            "[LEAF-PERF][TUN][TCP] drop unproxyable {} -> {}",
+        log::trace!(
+            "[TUN][TCP] drop unproxyable {} -> {}",
             local_addr,
             remote_addr
         );
@@ -219,15 +219,15 @@ async fn handle_inbound_stream(
     if fakedns.is_fake_ip(&remote_addr.ip()).await {
         if let Some(domain) = fakedns.query_domain(&remote_addr.ip()).await {
             if domain.is_empty() {
-                log::info!(
-                    "[LEAF-PERF][TUN][TCP] drop empty fake dns domain {} -> {}",
+                log::trace!(
+                    "[TUN][TCP] drop empty fake dns domain {} -> {}",
                     local_addr,
                     remote_addr
                 );
                 return;
             }
-            log::info!(
-                "[LEAF-PERF][TUN][TCP] fake dns {} -> {} in {}ms",
+            log::trace!(
+                "[TUN][TCP] fake dns {} -> {} in {}ms",
                 remote_addr.ip(),
                 domain,
                 flow_start.elapsed().as_millis()
@@ -240,23 +240,23 @@ async fn handle_inbound_stream(
             // still have a chance to sniff the request domain
             // for TLS traffic in dispatcher.
             if remote_addr.port() != 443 {
-                log::info!(
-                    "[LEAF-PERF][TUN][TCP] reject fake ip without domain {}",
+                log::trace!(
+                    "[TUN][TCP] reject fake ip without domain {}",
                     &remote_addr.ip()
                 );
                 return;
             }
         }
     }
-    log::info!(
-        "[LEAF-PERF][TUN][TCP] dispatch begin {} -> {} after {}ms",
+    log::trace!(
+        "[TUN][TCP] dispatch begin {} -> {} after {}ms",
         local_addr,
         sess.destination,
         flow_start.elapsed().as_millis()
     );
     dispatcher.dispatch_tcp(sess, stream).await;
-    log::info!(
-        "[LEAF-PERF][TUN][TCP] dispatch end {} -> {} total={}ms",
+    log::trace!(
+        "[TUN][TCP] dispatch end {} -> {} total={}ms",
         local_addr,
         remote_addr,
         flow_start.elapsed().as_millis()
@@ -308,8 +308,8 @@ async fn handle_inbound_datagram(
                 );
             }
             if last_report.elapsed() >= Duration::from_secs(2) {
-                info!(
-                    "[LEAF-PERF][TUN][UDP] downlink packets={} bytes={} last_src={} last_dst={}",
+                trace!(
+                    "[TUN][UDP] downlink packets={} bytes={} last_src={} last_dst={}",
                     downlink_count, downlink_bytes, src_addr, dst_addr_for_log
                 );
                 downlink_count = 0;
@@ -332,8 +332,8 @@ async fn handle_inbound_datagram(
                 uplink_count += 1;
                 uplink_bytes += data.len() as u64;
                 if last_uplink_report.elapsed() >= Duration::from_secs(2) {
-                    info!(
-                        "[LEAF-PERF][TUN][UDP] uplink packets={} bytes={} last_src={} last_dst={}",
+                    trace!(
+                        "[TUN][UDP] uplink packets={} bytes={} last_src={} last_dst={}",
                         uplink_count, uplink_bytes, src_addr, dst_addr
                     );
                     uplink_count = 0;
@@ -343,8 +343,8 @@ async fn handle_inbound_datagram(
                 // Fake DNS logic.
                 if dst_addr.port() == 53 {
                     let dns_start = Instant::now();
-                    log::info!(
-                        "[LEAF-PERF][TUN][UDP][DNS] fake dns packet {} -> {}",
+                    log::trace!(
+                        "[TUN][UDP][DNS] fake dns packet {} -> {}",
                         src_addr,
                         dst_addr
                     );
@@ -352,12 +352,12 @@ async fn handle_inbound_datagram(
                         Ok(resp) => {
                             if let Err(e) = ls.send_to(resp.as_ref(), &dst_addr, &src_addr) {
                                 warn!(
-                                    "[LEAF-PERF][TUN][UDP][DNS] send fake response failed: {}",
+                                    "[TUN][UDP][DNS] send fake response failed: {}",
                                     e
                                 );
                             }
-                            info!(
-                                "[LEAF-PERF][TUN][UDP][DNS] fake response done {} -> {} in {}ms",
+                            trace!(
+                                "[TUN][UDP][DNS] fake response done {} -> {} in {}ms",
                                 src_addr,
                                 dst_addr,
                                 dns_start.elapsed().as_millis()
@@ -383,8 +383,8 @@ async fn handle_inbound_datagram(
                 // with domain name destination, leaf itself of course supports
                 // this feature very well.
                 if is_unproxyable_tun_ip(dst_addr.ip()) {
-                    log::info!(
-                        "[LEAF-PERF][TUN][UDP] drop unproxyable {} -> {}",
+                    log::trace!(
+                        "[TUN][UDP] drop unproxyable {} -> {}",
                         src_addr,
                         dst_addr
                     );
@@ -393,15 +393,15 @@ async fn handle_inbound_datagram(
 
                 let dst_addr = if fakedns.is_fake_ip(&dst_addr.ip()).await {
                     if let Some(domain) = fakedns.query_domain(&dst_addr.ip()).await {
-                        info!(
-                            "[LEAF-PERF][TUN][UDP] fake dns {} -> {}",
+                        trace!(
+                            "[TUN][UDP] fake dns {} -> {}",
                             dst_addr.ip(),
                             domain
                         );
                         SocksAddr::Domain(domain, dst_addr.port())
                     } else {
-                        log::info!(
-                            "[LEAF-PERF][TUN][UDP] reject fake ip without domain {}",
+                        log::trace!(
+                            "[TUN][UDP] reject fake ip without domain {}",
                             &dst_addr.ip()
                         );
                         continue;
@@ -411,8 +411,8 @@ async fn handle_inbound_datagram(
                 };
 
                 if is_unproxyable_tun_destination(&dst_addr) {
-                    log::info!(
-                        "[LEAF-PERF][TUN][UDP] drop unproxyable destination {} -> {}",
+                    log::trace!(
+                        "[TUN][UDP] drop unproxyable destination {} -> {}",
                         src_addr,
                         dst_addr
                     );
@@ -555,8 +555,8 @@ pub fn new(
                         break;
                     }
                     if last_report.elapsed() >= Duration::from_secs(2) {
-                        info!(
-                            "[LEAF-PERF][TUN] stack->tun packets={} bytes={}",
+                        trace!(
+                            "[TUN] stack->tun packets={} bytes={}",
                             pkt_count, byte_count
                         );
                         pkt_count = 0;
@@ -585,8 +585,8 @@ pub fn new(
                         break;
                     }
                     if last_report.elapsed() >= Duration::from_secs(2) {
-                        info!(
-                            "[LEAF-PERF][TUN] tun->stack packets={} bytes={}",
+                        trace!(
+                            "[TUN] tun->stack packets={} bytes={}",
                             pkt_count, byte_count
                         );
                         pkt_count = 0;
@@ -604,8 +604,8 @@ pub fn new(
         futs.push(Box::pin(async move {
             let tcp_slots = Arc::new(Semaphore::new(*option::TUN_TCP_CONCURRENCY));
             while let Some((stream, local_addr, remote_addr)) = tcp_listener.next().await {
-                info!(
-                    "[LEAF-PERF][TUN][TCP] listener got {} -> {}",
+                trace!(
+                    "[TUN][TCP] listener got {} -> {}",
                     local_addr, remote_addr
                 );
                 let permit = match tcp_slots.clone().try_acquire_owned() {

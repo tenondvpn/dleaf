@@ -144,10 +144,8 @@ impl TcpOutboundHandler for Handler {
 
         let mut pk_len = pk_str.len() as u32;
         pk_len += 2;
-        let mut n2: u8 = thread_rng().gen_range(7..16) % 16;
-        if (n2 >= 16 || n2 < 7) {
-            n2 = 9;
-        }
+        let n2_byte: u8 = thread_rng().gen();
+        let n2: u8 = n2_byte % 12 + 4;
 
         let rand_len = n2 as u32;
         // route ip and port: 6 bytes, rand_len: 1byte, pk len: 2byte
@@ -191,7 +189,7 @@ impl TcpOutboundHandler for Handler {
             head_size += 6;
         }
 
-        buffer1.put_u8(n2);
+        buffer1.put_u8(n2_byte);
         let rand_string: String = thread_rng()
             .sample_iter(&Alphanumeric)
             .take(n2 as usize)
@@ -210,10 +208,6 @@ impl TcpOutboundHandler for Handler {
 
             buffer1[i] = buffer1[i] ^ buffer1[pos];
             i = i + 1;
-        }
-
-        if (buffer1[head_size] as u8 >= 16) {
-            panic!("this is a terrible mistake!");
         }
 
         if buffer1.len() != all_len as usize {
