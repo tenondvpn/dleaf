@@ -13,7 +13,6 @@ use log::*;
 use rand::distributions::Alphanumeric;
 use rand::thread_rng;
 use rand::Rng;
-use sha2::{Digest, Sha256};
 
 use super::shadow::{self, ShadowedDatagram};
 
@@ -164,8 +163,6 @@ impl UdpOutboundHandler for Handler {
         };
 
         let tmp_ps = vec[0].to_string();
-        let tmp_pk = vec[3];
-        let tmp_ver = vec[4];
         let tmp_ex_route_ip = 0;
         let tmp_ex_route_port = 0;
         let dgram = ShadowedDatagram::new(&self.cipher, &tmp_ps)?;
@@ -176,7 +173,6 @@ impl UdpOutboundHandler for Handler {
             _ => None,
         };
 
-        let use_aead = tmp_ps == "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
         Ok(Box::new(Datagram {
             dgram,
             socket,
@@ -184,13 +180,13 @@ impl UdpOutboundHandler for Handler {
             server_addr,
             vpn_ip: tmp_vpn_ip,
             vpn_port: tmp_vpn_port,
-            pk_str: tmp_pk.to_string(),
-            ver: tmp_ver.to_string(),
             ex_route_ip: tmp_ex_route_ip,
             ex_route_port: tmp_ex_route_port,
             address: address,
-            plain_passthrough: via_connector,
-            use_aead,
+            // p2p-ss forces encryption regardless of via_connector (see tcp.rs). The
+            // routing use of via_connector above is untouched; only the encrypt/plaintext
+            // decision is overridden here.
+            plain_passthrough: via_connector && !common::sync_valid_routes::GetP2pSs(),
         }))
     }
 }
@@ -202,13 +198,10 @@ pub struct Datagram {
     pub server_addr: SocksAddr,
     pub vpn_ip: u32,
     pub vpn_port: u16,
-    pub pk_str: String,
-    pub ver: String,
     pub ex_route_ip: u32,
     pub ex_route_port: u16,
     pub address: String,
     pub plain_passthrough: bool,
-    pub use_aead: bool,
 }
 
 impl OutboundDatagram for Datagram {
@@ -228,13 +221,10 @@ impl OutboundDatagram for Datagram {
                 server_addr: self.server_addr,
                 vpn_ip: self.vpn_ip,
                 vpn_port: self.vpn_port,
-                pk_str: self.pk_str,
-                ver: self.ver,
                 ex_route_ip: self.ex_route_ip,
                 ex_route_port: self.ex_route_port,
                 address: self.address,
                 plain_passthrough: self.plain_passthrough,
-                use_aead: self.use_aead,
             }),
         )
     }
@@ -281,13 +271,10 @@ pub struct DatagramSendHalf {
     server_addr: SocksAddr,
     vpn_ip: u32,
     vpn_port: u16,
-    pk_str: String,
-    ver: String,
     ex_route_ip: u32,
     ex_route_port: u16,
     address: String,
     plain_passthrough: bool,
-    use_aead: bool,
 }
 
 #[async_trait]
@@ -324,29 +311,17 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             self.address.clone()
         };
 
-        // Use res_hash (32 bytes) only after TCP has established a session with the server
-        // (GetResponseStatus=true means server has cached our pubkey). On first UDP packet,
-        // fall back to full 33-byte pubkey so server can build the ECDH key and cache it.
-        let pk_bytes: Vec<u8>;
-        let use_hash = common::sync_valid_routes::GetResponseStatus(hash_address.clone());
-        if use_hash {
-            let mut ex_hash = common::sync_valid_routes::GetResponseHash(hash_address.clone());
-            if ex_hash.is_empty() {
-                let tmp_pk = common::sync_valid_routes::GetClientPk().to_string();
-                let tmp_pk_str = hex::decode(tmp_pk[4..70].to_string()).expect("Decoding failed");
-                let mut hasher = Sha256::new();
-                hasher.update(&tmp_pk_str);
-                ex_hash = hex::encode(hasher.finalize());
-                common::sync_valid_routes::SetResponseHash(hash_address, ex_hash.clone());
-            }
-            pk_bytes = hex::decode(ex_hash).expect("Decoding failed");
+        // TCP-format initInfo: [pk_len(2B)][proto_body] — same as shadowsocks/outbound/tcp.rs.
+        // GetClientPk() / GetClientPkHash() return hex-encoded protobuf InitInfo bodies.
+        let pk_str: Vec<u8> = if common::sync_valid_routes::GetResponseStatus(hash_address) {
+            hex::decode(common::sync_valid_routes::GetClientPkHash()).expect("Decoding failed")
         } else {
-            // First connection: send full compressed pubkey (33 bytes) so server can ECDH
-            let tmp_pk = common::sync_valid_routes::GetClientPk().to_string();
-            pk_bytes = hex::decode(tmp_pk[4..70].to_string()).expect("Decoding failed");
-        }
-        let mut buffer1 = BytesMut::with_capacity(32 + n2 as usize + 1 + 32);
-        let mut head_size = 0;
+            hex::decode(common::sync_valid_routes::GetClientPk()).expect("Decoding failed")
+        };
+        let pk_len: u16 = (pk_str.len() + 2) as u16;
+
+        let mut buffer1 = BytesMut::with_capacity(6 + 1 + n2 as usize + 2 + pk_str.len());
+        let mut head_size: usize = 0;
         if self.vpn_port != 0 {
             buffer1.put_u32(self.vpn_ip);
             buffer1.put_u16(self.vpn_port);
@@ -360,17 +335,8 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
             .map(char::from)
             .collect();
         buffer1.put_slice(rand_string[..].as_bytes());
-        buffer1.put_slice(&pk_bytes);
-        let base_len: u8 = if self.vpn_port != 0 { 25 } else { 19 };
-        // bit7 signals use_aead to the server (server should use debug key for decrypt)
-        let method_len_byte = if self.use_aead { base_len | 0x80 } else { base_len };
-        buffer1.put_u8(method_len_byte);
-        if self.vpn_port != 0 {
-            buffer1.put_u32(self.vpn_ip);
-            buffer1.put_u16(self.vpn_port);
-        }
-
-        buffer1.put_slice(self.ver[..].as_bytes());
+        buffer1.put_u16(pk_len);
+        buffer1.put_slice(&pk_str);
         let mut buffer = BytesMut::with_capacity(payload.len() + buffer1.len());
         buffer.put_slice(&buffer1);
         buffer.put_slice(&payload);

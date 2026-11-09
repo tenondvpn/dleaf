@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::panic;
 use std::process;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use xxhash_rust::const_xxh3::xxh3_64 as const_xxh3;
@@ -25,6 +26,19 @@ lazy_static! {
     static ref sell_msg: Mutex<String> = Mutex::new(String::from(""));
     static ref order_msg: Mutex<String> = Mutex::new(String::from(""));
     static ref res_queue: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
+}
+
+// p2p-ss mode flag. When true, the shadowsocks outbound MUST encrypt (ShadowedStream)
+// regardless of the via_connector suffix — p2p-ss relays ENCRYPTED traffic through a
+// route node to the vpn node's ss port. Set from the Android layer via set_p2p_ss().
+static P2P_SS: AtomicBool = AtomicBool::new(false);
+
+pub fn SetP2pSs(enabled: bool) {
+    P2P_SS.store(enabled, Ordering::Relaxed);
+}
+
+pub fn GetP2pSs() -> bool {
+    P2P_SS.load(Ordering::Relaxed)
 }
 
 pub fn GetValidRoutes() -> String {

@@ -321,6 +321,10 @@ pub fn set_pk_hash(pk: String) {
     common::sync_valid_routes::SetClientPkHash(pk);
 }
 
+pub fn set_p2p_ss(enabled: bool) {
+    common::sync_valid_routes::SetP2pSs(enabled);
+}
+
 pub fn push_client_msg(msg: String) {
     common::sync_valid_routes::PushClientMsg(msg);
 }

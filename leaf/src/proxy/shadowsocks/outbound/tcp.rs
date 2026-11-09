@@ -218,7 +218,10 @@ impl TcpOutboundHandler for Handler {
         let mut buf = BytesMut::new();
         sess.destination
             .write_buf(&mut buf, SocksAddrWireType::PortLast);
-        if via_connector(&tmp_vec) {
+        // p2p-ss forces encryption regardless of via_connector: the route node relays
+        // ENCRYPTED ss traffic to the vpn node's ss port. via_connector itself is left
+        // untouched (it only reflects the transport protocol choice).
+        if via_connector(&tmp_vec) && !common::sync_valid_routes::GetP2pSs() {
             src_stream.write_all(&buf).await?;
             return Ok(Box::new(src_stream));
         }

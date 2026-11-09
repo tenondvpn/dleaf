@@ -80,7 +80,6 @@ fn init_native_logging() {
                 std::backtrace::Backtrace::force_capture()
             ));
         }));
-        android_log_info("native logging initialized");
     });
 }
 
@@ -108,7 +107,6 @@ unsafe fn load_connector(path: Option<String>) -> Result<(), String> {
     };
     let mut last_err = String::new();
     for candidate in candidates {
-        android_log_info(&format!("load p2p connector candidate={}", candidate));
         match Library::new(&candidate) {
             Ok(lib) => {
                 let start: ConnectorStart = *lib
@@ -130,7 +128,6 @@ unsafe fn load_connector(path: Option<String>) -> Result<(), String> {
                     free,
                     _lib: lib,
                 });
-                android_log_info(&format!("load p2p connector ok candidate={}", candidate));
                 return Ok(());
             }
             Err(e) => {
@@ -147,7 +144,6 @@ unsafe fn load_connector(path: Option<String>) -> Result<(), String> {
 
 unsafe fn start_connector(config_json: String) -> i32 {
     init_native_logging();
-    android_log_info("start p2p connector enter");
     if !connector_transparent_mode(&config_json) {
         if let Ok(mut disabled) = CONNECTOR_DISABLED.lock() {
             *disabled = true;
@@ -172,9 +168,7 @@ unsafe fn start_connector(config_json: String) -> i32 {
     };
     match guard.as_ref() {
         Some(connector) => {
-            android_log_info("call p2p connector start");
             let result = (connector.start)(config.as_ptr()) as i32;
-            android_log_info(&format!("p2p connector start returned {}", result));
             result
         }
         None => -103,
@@ -270,7 +264,6 @@ unsafe fn run_leaf(env: JNIEnv, config_path: JString) -> i32 {
         // current JNI thread so those probes are not needed.
         runtime_opt: leaf::RuntimeOption::SingleThread,
     };
-    android_log_info("leaf start enter");
     match leaf::start(0, opts) {
         Ok(()) => {
             android_log_info("leaf start returned ok");
@@ -315,6 +308,10 @@ unsafe fn set_client_pk_hash(env: JNIEnv, pk: JString) {
     if let Ok(pk) = jstring_to_string(env, pk) {
         leaf::set_pk_hash(pk);
     }
+}
+
+fn set_p2p_ss(enabled: sys::jboolean) {
+    leaf::set_p2p_ss(enabled != sys::JNI_FALSE);
 }
 
 unsafe fn push_client_msg(env: JNIEnv, msg: JString) {
@@ -465,6 +462,16 @@ pub unsafe extern "C" fn Java_com_leaf_example_aleaf_SimpleVpnService_setClientP
 
 #[allow(non_snake_case)]
 #[no_mangle]
+pub unsafe extern "C" fn Java_com_leaf_example_aleaf_SimpleVpnService_setP2pSs(
+    _env: JNIEnv,
+    _: JClass,
+    enabled: sys::jboolean,
+) {
+    set_p2p_ss(enabled);
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
 pub unsafe extern "C" fn Java_com_leaf_example_aleaf_client_pushClientMsg(
     env: JNIEnv,
     _: JClass,
@@ -604,6 +611,16 @@ pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_setClientPkHas
     pk: JString,
 ) {
     Java_com_leaf_example_aleaf_SimpleVpnService_setClientPkHash(env, class, pk);
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_setP2pSs(
+    env: JNIEnv,
+    class: JClass,
+    enabled: sys::jboolean,
+) {
+    Java_com_leaf_example_aleaf_SimpleVpnService_setP2pSs(env, class, enabled);
 }
 
 #[allow(non_snake_case)]

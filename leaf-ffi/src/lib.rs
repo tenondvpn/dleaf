@@ -169,6 +169,14 @@ pub extern "C" fn set_pk_hash(s: *const c_char) {
     }
 }
 
+/// p2p-ss mode: force the shadowsocks outbound to encrypt (ShadowedStream) even
+/// when the via_connector plaintext suffix is set, so the route node relays
+/// ENCRYPTED ss to the vpn node's ss port. Mirrors the Android JNI setP2pSs.
+#[no_mangle]
+pub extern "C" fn set_p2p_ss(enabled: i32) {
+    leaf::set_p2p_ss(enabled != 0);
+}
+
 /// Reloads DNS servers, outbounds and routing rules from the config file.
 ///
 /// @param rt_id The ID of the leaf instance to reload.

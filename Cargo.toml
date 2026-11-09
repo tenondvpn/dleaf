@@ -28,3 +28,4 @@ strip = "symbols"
 opt-level = 0
 debug = true
 split-debuginfo = "unpacked"
+debug-assertions = false
