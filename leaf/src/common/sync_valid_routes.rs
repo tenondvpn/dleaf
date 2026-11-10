@@ -101,14 +101,19 @@ pub fn ClearAll() {
     connection_status.lock().unwrap().clear();
 }
 
-pub fn get_port_with_ip(ip: String, min_port: u32, max_port: u32) -> u16 {
-    let dt: DateTime<Local> = Local::now();
-    let timestamp = dt.timestamp() / (3600 * 24);
-    let mut tmp_str = ip.clone();
-    tmp_str += &timestamp.to_string();
-    let port_hash = xxh32::xxh32(tmp_str.as_bytes(), 623453345u32);
-    let port = ((port_hash % (max_port - min_port)) + min_port);
-    return port as u16;
+// Fixed server ports (no per-day (ip+timestamp) hash). The two callers pass the
+// vpn-server range [10000,35000) or the route range [35000,65000); we map the
+// route range (min_port >= 35000) to 18764 and the vpn-server range to 28764.
+// The same two values are hardcoded on the server (C++ GetVpnServerPort /
+// GetVpnRoutePort) and the clients, so all sides agree without recomputation.
+pub const FIXED_VPN_SERVER_PORT: u16 = 28764;
+pub const FIXED_VPN_ROUTE_PORT: u16 = 18764;
+pub fn get_port_with_ip(_ip: String, min_port: u32, _max_port: u32) -> u16 {
+    if min_port >= 35000 {
+        FIXED_VPN_ROUTE_PORT
+    } else {
+        FIXED_VPN_SERVER_PORT
+    }
 }
 
 pub fn PushClientMsg(msg: String) {
