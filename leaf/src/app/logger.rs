@@ -47,7 +47,25 @@ pub fn setup_logger(config: &config::Log) -> Result<()> {
         .level(log::LevelFilter::Warn)
         .level_for("rust-tun", loglevel)
         .level_for("netstack-lwip", loglevel)
-        .level_for("leaf", std::cmp::min(loglevel, log::LevelFilter::Warn));
+        // The leaf crate's own logs (incl. [LEAF-PERF][DISPATCH][UDP] per-session
+        // diagnostics) are normally capped at Warn to keep production quiet/fast.
+        // Honor the configured loglevel ONLY when it is explicitly Debug or Trace,
+        // so a diagnostic build (config `loglevel = debug`) surfaces the info!/debug!
+        // lines from the dispatcher/proxy UDP path. Production uses `loglevel = info`,
+        // which still falls through to the Warn cap — behavior there is unchanged.
+        //
+        // NOTE: this is config-gated, not compile-gated. cfg!(debug_assertions) could
+        // not be used because [profile.dev] sets debug-assertions = false, so it is
+        // false even in debug builds. Config-gating also means a RELEASE .so emits
+        // these logs when loglevel=debug, so no slow debug build is required to
+        // diagnose; just set loglevel=debug and rebuild normally.
+        .level_for(
+            "leaf",
+            match loglevel {
+                log::LevelFilter::Debug | log::LevelFilter::Trace => loglevel,
+                other => std::cmp::min(other, log::LevelFilter::Warn),
+            },
+        );
 
     match config.output {
         config::Log_Output::CONSOLE => {

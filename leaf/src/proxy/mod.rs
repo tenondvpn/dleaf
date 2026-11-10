@@ -486,17 +486,23 @@ async fn new_udp_socket_with_proxy(
     // IP_UNICAST_IF steer the source. That steering must NOT be applied when the
     // proxy is the local connector: bind_socket would push IP_UNICAST_IF=physical
     // onto a socket that then sends to 127.0.0.1, which drops all connector UDP.
+    // Only a loopback PROXY (local connector) should bind the loopback indicator.
+    // A loopback source with a public proxy must bind 0.0.0.0 (see the non-Windows
+    // branch below) or sendto to the public proxy fails with EINVAL.
     #[cfg(target_os = "windows")]
-    if loopback_proxy || indicator.ip().is_loopback() {
+    if loopback_proxy {
         bind_socket(&socket, indicator).await?;
     } else {
         bind_socket(&socket, &*option::UNSPECIFIED_BIND_ADDR).await?;
     }
 
-    // If the proxy request is coming from an inbound listens on the loopback,
-    // the indicator could be a loopback address, we must ignore it.
+    // Bind only to a loopback indicator when the PROXY itself is loopback (local
+    // connector). A loopback *source* (e.g. a datagram from the local SOCKS inbound
+    // on 127.0.0.1) must NOT cause a loopback bind: the outbound socket then cannot
+    // sendto a public proxy and fails with EINVAL (code 22). In that case bind the
+    // unspecified address and protect normally, exactly like a TUN-sourced datagram.
     #[cfg(not(target_os = "windows"))]
-    if indicator.ip().is_loopback() {
+    if loopback_proxy {
         bind_socket(&socket, indicator).await?;
     } else if *option::ENABLE_IPV6 {
         bind_socket(&socket, &*option::UNSPECIFIED_BIND_ADDR).await?;
@@ -512,8 +518,11 @@ async fn new_udp_socket_with_proxy(
         bind_socket(&socket, indicator).await?;
     }
 
+    // Protect must be skipped ONLY when the proxy is the local loopback connector.
+    // A loopback *source* (SOCKS inbound) still sends to a public proxy, so that
+    // socket MUST be protected or it routes back into the tunnel and never egresses.
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    if loopback_proxy || indicator.ip().is_loopback() {
+    if loopback_proxy {
         info!(
             "[LEAF-PERF][PROXY][UDP] skip protect for loopback proxy {}",
             proxy_host.unwrap_or("127.0.0.1")

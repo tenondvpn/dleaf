@@ -142,7 +142,21 @@ impl NetworkInboundListener {
         if self.handler.has_tcp() {
             let listen_addr = SocketAddr::new(address.parse::<IpAddr>()?, port);
             let tcp_task = async move {
-                let listener = TcpListener::bind(&listen_addr).await.unwrap();
+                // Bind failure (e.g. a stale listener on the same port after a
+                // reconnect) must NOT kill the whole engine. Previously .unwrap()
+                // panicked the runner, which took the TUN inbound down with it
+                // ("all protocols broke" when a socks inbound port was busy). Log
+                // and skip this inbound instead; TUN and other runners keep serving.
+                let listener = match TcpListener::bind(&listen_addr).await {
+                    Ok(l) => l,
+                    Err(e) => {
+                        error!(
+                            "inbound tcp bind {} failed: {} (skipping this inbound; tunnel continues)",
+                            &listen_addr, e
+                        );
+                        return;
+                    }
+                };
                 info!("inbound listening tcp {}", &listen_addr);
                 loop {
                     match listener.accept().await {
@@ -172,7 +186,18 @@ impl NetworkInboundListener {
             let port = self.port;
             let listen_addr = SocketAddr::new(address.parse()?, port);
             let udp_task = async move {
-                let socket = UdpSocket::bind(&listen_addr).await.unwrap();
+                // Same bind-safety as the tcp task above: never panic the runner on
+                // a busy/stale port, or the TUN inbound goes down with it.
+                let socket = match UdpSocket::bind(&listen_addr).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!(
+                            "inbound udp bind {} failed: {} (skipping this inbound; tunnel continues)",
+                            &listen_addr, e
+                        );
+                        return;
+                    }
+                };
                 info!("inbound listening udp {}", &listen_addr);
 
                 // FIXME spawn
