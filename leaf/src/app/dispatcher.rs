@@ -80,7 +80,7 @@ impl Dispatcher {
         T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
         let dispatch_start = tokio::time::Instant::now();
-        info!(
+        trace!(
             "[LEAF-PERF][DISPATCH][TCP] begin {} -> {}",
             sess.source, sess.destination
         );
@@ -90,7 +90,7 @@ impl Dispatcher {
                 let mut lhs = sniff::SniffingStream::new(lhs);
                 match lhs.sniff().await {
                     Ok(res) => {
-                        info!(
+                        trace!(
                             "[LEAF-PERF][DISPATCH][TCP] sniff done {} -> {} in {}ms",
                             sess.source,
                             sess.destination,
@@ -115,7 +115,7 @@ impl Dispatcher {
                         }
                     }
                     Err(e) => {
-                        info!(
+                        trace!(
                             "[LEAF-PERF][DISPATCH][TCP] sniff failed {} -> {} in {}ms: {}",
                             &sess.source,
                             &sess.destination,
@@ -135,7 +135,7 @@ impl Dispatcher {
             let router = self.router.read().await;
             match router.pick_route(&sess).await {
                 Ok(tag) => {
-                    info!(
+                    trace!(
                         "[LEAF-PERF][DISPATCH][TCP] picked route [{}] for {} -> {} in {}ms",
                         tag,
                         &sess.source,
@@ -145,7 +145,7 @@ impl Dispatcher {
                     tag.to_owned()
                 }
                 Err(err) => {
-                    info!(
+                    trace!(
                         "[LEAF-PERF][DISPATCH][TCP] pick route failed for {} -> {} in {}ms: {}",
                         &sess.source,
                         &sess.destination,
@@ -153,7 +153,7 @@ impl Dispatcher {
                         err
                     );
                     if let Some(tag) = self.outbound_manager.read().await.default_handler() {
-                        info!(
+                        trace!(
                             "[LEAF-PERF][DISPATCH][TCP] picked default route [{}] for {} -> {}",
                             tag, &sess.source, &sess.destination
                         );
@@ -192,7 +192,7 @@ impl Dispatcher {
         };
 
         let handshake_start = tokio::time::Instant::now();
-        info!(
+        trace!(
             "[LEAF-PERF][DISPATCH][TCP] connect outbound begin {} -> {} via [{}]",
             sess.source,
             sess.destination,
@@ -203,7 +203,7 @@ impl Dispatcher {
         {
             Ok(s) => s,
             Err(e) => {
-                info!(
+                trace!(
                         "[LEAF-PERF][DISPATCH][TCP] connect outbound failed {} -> {} via [{}] in {}ms: {}",
                         &sess.source,
                         &sess.destination,
@@ -215,7 +215,7 @@ impl Dispatcher {
                 return;
             }
         };
-        info!(
+        trace!(
             "[LEAF-PERF][DISPATCH][TCP] outbound connected {} -> {} via [{}] in {}ms",
             sess.source,
             sess.destination,
@@ -226,7 +226,7 @@ impl Dispatcher {
         match TcpOutboundHandler::handle(h.as_ref(), &sess, stream).await {
             Ok(mut rhs) => {
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
-                info!(
+                trace!(
                     "[LEAF-PERF][DISPATCH][TCP] handler ready {} -> {} via [{}] handle={}ms handshake_total={}ms",
                     sess.source,
                     sess.destination,
@@ -256,7 +256,7 @@ impl Dispatcher {
                 .await
                 {
                     Ok((up_count, down_count)) => {
-                        info!(
+                        trace!(
                             "[LEAF-PERF][DISPATCH][TCP] link done {} <-> {} up={} down={} via [{}] total={}ms",
                             &sess.source,
                             &sess.destination,
@@ -267,7 +267,7 @@ impl Dispatcher {
                         );
                     }
                     Err(e) => {
-                        info!(
+                        trace!(
                             "[LEAF-PERF][DISPATCH][TCP] link error {} <-> {} via [{}] total={}ms: {}",
                             &sess.source,
                             &sess.destination,
@@ -279,7 +279,7 @@ impl Dispatcher {
                 }
             }
             Err(e) => {
-                info!(
+                trace!(
                     "[LEAF-PERF][DISPATCH][TCP] handler failed {} -> {} via [{}] in {}ms: {}",
                     &sess.source,
                     &sess.destination,
@@ -305,7 +305,7 @@ impl Dispatcher {
 
     pub async fn dispatch_udp(&self, mut sess: Session) -> io::Result<Box<dyn OutboundDatagram>> {
         let dispatch_start = tokio::time::Instant::now();
-        info!(
+        trace!(
             "[LEAF-PERF][DISPATCH][UDP] begin {} -> {}",
             sess.source, sess.destination
         );
@@ -314,7 +314,7 @@ impl Dispatcher {
             let router = self.router.read().await;
             match router.pick_route(&sess).await {
                 Ok(tag) => {
-                    info!(
+                    trace!(
                         "[LEAF-PERF][DISPATCH][UDP] picked route [{}] for {} -> {} in {}ms",
                         tag,
                         &sess.source,
@@ -324,7 +324,7 @@ impl Dispatcher {
                     tag.to_owned()
                 }
                 Err(err) => {
-                    info!(
+                    trace!(
                         "[LEAF-PERF][DISPATCH][UDP] pick route failed for {} -> {} in {}ms: {}",
                         &sess.source,
                         &sess.destination,
@@ -332,7 +332,7 @@ impl Dispatcher {
                         err
                     );
                     if let Some(tag) = self.outbound_manager.read().await.default_handler() {
-                        info!(
+                        trace!(
                             "[LEAF-PERF][DISPATCH][UDP] picked default route [{}] for {} -> {}",
                             tag, &sess.source, &sess.destination
                         );
@@ -358,7 +358,7 @@ impl Dispatcher {
         };
 
         let handshake_start = tokio::time::Instant::now();
-        info!(
+        trace!(
             "[LEAF-PERF][DISPATCH][UDP] connect outbound begin {} -> {} via [{}]",
             sess.source,
             sess.destination,
@@ -366,7 +366,7 @@ impl Dispatcher {
         );
         let transport =
             crate::proxy::connect_udp_outbound(&sess, self.dns_client.clone(), &h).await?;
-        info!(
+        trace!(
             "[LEAF-PERF][DISPATCH][UDP] outbound connected {} -> {} via [{}] in {}ms",
             sess.source,
             sess.destination,
@@ -378,7 +378,7 @@ impl Dispatcher {
             #[allow(unused_mut)]
             Ok(mut d) => {
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
-                info!(
+                trace!(
                     "[LEAF-PERF][DISPATCH][UDP] handler ready {} -> {} via [{}] handle={}ms total={}ms",
                     sess.source,
                     sess.destination,
@@ -401,7 +401,7 @@ impl Dispatcher {
                 Ok(d)
             }
             Err(e) => {
-                info!(
+                trace!(
                     "[LEAF-PERF][DISPATCH][UDP] handler failed {} -> {} via [{}] in {}ms: {}",
                     &sess.source,
                     &sess.destination,

@@ -436,7 +436,7 @@ pub fn new(
 ) -> Result<Runner> {
     let settings = TunInboundSettings::parse_from_bytes(&inbound.settings)?;
     let can_use_prewarmed_windows_tun = settings.fd < 0 && settings.auto;
-    info!(
+    trace!(
         "[LEAF-PERF][TUN] config fd={} auto={} mtu={} name={} address={} gateway={} netmask={}",
         settings.fd,
         settings.auto,
@@ -647,7 +647,7 @@ pub fn new(
             handle_inbound_datagram(udp_socket, inbound_tag, nat_manager, fakedns.clone()).await;
         }));
 
-        info!("[LEAF-PERF][TUN] start tun inbound");
+        trace!("[LEAF-PERF][TUN] start tun inbound");
         futures::future::select_all(futs).await;
     }))
 }

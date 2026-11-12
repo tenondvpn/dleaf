@@ -374,7 +374,7 @@ impl DnsClient {
     pub async fn lookup(&self, host: &String) -> Result<Vec<IpAddr>> {
         let lookup_start = Instant::now();
         if let Ok(ip) = host.parse::<IpAddr>() {
-            info!(
+            trace!(
                 "[LEAF-PERF][DNS] literal {} in {}ms",
                 host,
                 lookup_start.elapsed().as_millis()
@@ -383,7 +383,7 @@ impl DnsClient {
         }
 
         if let Ok(ips) = self.get_cached(host).await {
-            info!(
+            trace!(
                 "[LEAF-PERF][DNS] cache hit {} -> {:?} in {}ms",
                 host,
                 ips,
@@ -411,7 +411,7 @@ impl DnsClient {
                         )
                         .await;
                     }
-                    info!(
+                    trace!(
                         "[LEAF-PERF][DNS] hosts hit {} -> {:?} in {}ms",
                         host,
                         ips,
@@ -513,7 +513,7 @@ impl DnsClient {
                     ips.append(&mut v.0.ips);
                 }
                 Err(e) => {
-                    info!(
+                    trace!(
                         "[LEAF-PERF][DNS] query branch failed {} in {}ms: {}",
                         host,
                         lookup_start.elapsed().as_millis(),
@@ -525,7 +525,7 @@ impl DnsClient {
         }
 
         if !ips.is_empty() {
-            info!(
+            trace!(
                 "[LEAF-PERF][DNS] resolved {} -> {:?} in {}ms",
                 host,
                 ips,
@@ -534,7 +534,7 @@ impl DnsClient {
             return Ok(ips);
         }
 
-        info!(
+        trace!(
             "[LEAF-PERF][DNS] failed {} in {}ms",
             host,
             lookup_start.elapsed().as_millis()
@@ -552,7 +552,7 @@ impl DnsClient {
         ips.retain(|ip| !Self::is_fake_dns_ip(ip));
         if !ips.is_empty() {
             if ips.len() != original_len {
-                info!(
+                trace!(
                     "[LEAF-PERF][DNS] real lookup filtered fake DNS cache {} -> {:?}",
                     host, ips
                 );
@@ -562,7 +562,7 @@ impl DnsClient {
 
         self.ipv4_cache.lock().await.pop(host);
         self.ipv6_cache.lock().await.pop(host);
-        info!(
+        trace!(
             "[LEAF-PERF][DNS] real lookup dropped fake-only cache for {}, querying upstream",
             host
         );

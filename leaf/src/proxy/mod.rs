@@ -523,7 +523,7 @@ async fn new_udp_socket_with_proxy(
     // socket MUST be protected or it routes back into the tunnel and never egresses.
     #[cfg(any(target_os = "android", target_os = "ios"))]
     if loopback_proxy {
-        info!(
+        trace!(
             "[LEAF-PERF][PROXY][UDP] skip protect for loopback proxy {}",
             proxy_host.unwrap_or("127.0.0.1")
         );
@@ -561,7 +561,7 @@ async fn tcp_dial_task(dial_addr: SocketAddr) -> io::Result<(AnyStream, SocketAd
 
     #[cfg(any(target_os = "android", target_os = "ios"))]
     if dial_addr.ip().is_loopback() {
-        info!(
+        trace!(
             "[LEAF-PERF][PROXY][TCP] skip protect for loopback dial {}",
             &dial_addr
         );
@@ -569,14 +569,14 @@ async fn tcp_dial_task(dial_addr: SocketAddr) -> io::Result<(AnyStream, SocketAd
         protect_socket(socket.as_raw_fd()).await?;
     }
 
-    info!("[LEAF-PERF][PROXY][TCP] dial begin {}", &dial_addr);
+    trace!("[LEAF-PERF][PROXY][TCP] dial begin {}", &dial_addr);
     let stream = timeout(
         Duration::from_secs(*option::OUTBOUND_DIAL_TIMEOUT),
         socket.connect(dial_addr),
     )
     .await
     .map_err(|e| {
-        info!(
+        trace!(
             "[LEAF-PERF][PROXY][TCP] dial timeout {} in {}ms: {}",
             &dial_addr,
             dial_start.elapsed().as_millis(),
@@ -585,7 +585,7 @@ async fn tcp_dial_task(dial_addr: SocketAddr) -> io::Result<(AnyStream, SocketAd
         e
     })?
     .map_err(|e| {
-        info!(
+        trace!(
             "[LEAF-PERF][PROXY][TCP] dial failed {} in {}ms: {}",
             &dial_addr,
             dial_start.elapsed().as_millis(),
@@ -596,7 +596,7 @@ async fn tcp_dial_task(dial_addr: SocketAddr) -> io::Result<(AnyStream, SocketAd
 
     apply_socket_opts(&stream)?;
 
-    info!(
+    trace!(
         "[LEAF-PERF][PROXY][TCP] dial connected {} <-> {} in {}ms",
         stream.local_addr()?,
         &dial_addr,
@@ -610,18 +610,18 @@ pub async fn connect_tcp_outbound(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyStream>> {
-    info!(
+    trace!(
         "[LEAF-PERF][PROXY][TCP] connect outbound handler={} destination={}",
         handler.tag(),
         sess.destination
     );
     match TcpOutboundHandler::connect_addr(handler.as_ref()) {
         Some(OutboundConnect::Proxy(addr, port)) => {
-            info!("[LEAF-PERF][PROXY][TCP] proxy connect {}:{}", addr, port);
+            trace!("[LEAF-PERF][PROXY][TCP] proxy connect {}:{}", addr, port);
             Ok(Some(new_tcp_stream(dns_client, &addr, &port).await?))
         }
         Some(OutboundConnect::Direct) => {
-            info!(
+            trace!(
                 "[LEAF-PERF][PROXY][TCP] direct connect {}",
                 sess.destination
             );
@@ -643,7 +643,7 @@ pub async fn connect_udp_outbound(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyOutboundTransport>> {
-    info!(
+    trace!(
         "[LEAF-PERF][PROXY][UDP] connect outbound handler={} destination={}",
         handler.tag(),
         sess.destination
@@ -653,7 +653,7 @@ pub async fn connect_udp_outbound(
             match UdpOutboundHandler::transport_type(handler.as_ref()) {
                 DatagramTransportType::Datagram => {
                     let bind_indicator = udp_bind_indicator(&sess.source, Some(&addr));
-                    info!(
+                    trace!(
                         "[LEAF-PERF][PROXY][UDP] proxy datagram socket source={} bind={} proxy={}:{}",
                         sess.source, bind_indicator, addr, port
                     );
@@ -663,7 +663,7 @@ pub async fn connect_udp_outbound(
                     ))))
                 }
                 DatagramTransportType::Stream => {
-                    info!(
+                    trace!(
                         "[LEAF-PERF][PROXY][UDP] proxy stream connect {}:{}",
                         addr, port
                     );
@@ -674,7 +674,7 @@ pub async fn connect_udp_outbound(
             }
         }
         Some(OutboundConnect::Direct) => {
-            info!(
+            trace!(
                 "[LEAF-PERF][PROXY][UDP] direct socket source={}",
                 sess.source
             );
@@ -717,11 +717,11 @@ async fn new_tcp_stream_with_fake_dns(
     allow_fake_dns: bool,
 ) -> io::Result<AnyStream> {
     let resolve_start = Instant::now();
-    info!("[LEAF-PERF][PROXY][TCP] resolve begin {}:{}", address, port);
+    trace!("[LEAF-PERF][PROXY][TCP] resolve begin {}:{}", address, port);
     let mut resolver = if allow_fake_dns || address.parse::<IpAddr>().is_ok() {
         Resolver::new(dns_client.clone(), address, port)
             .map_err(|e| {
-                info!(
+                trace!(
                     "[LEAF-PERF][PROXY][TCP] resolve failed {}:{} in {}ms: {}",
                     address,
                     port,
@@ -741,7 +741,7 @@ async fn new_tcp_stream_with_fake_dns(
                 .await
                 .lookup_real(address)
                 .map_err(|e| {
-                    info!(
+                    trace!(
                         "[LEAF-PERF][PROXY][TCP] direct resolve failed {}:{} in {}ms: {}",
                         address,
                         port,
@@ -758,7 +758,7 @@ async fn new_tcp_stream_with_fake_dns(
         let original_len = ips.len();
         ips.retain(|ip| !is_fake_dns_ip(ip));
         if ips.len() != original_len {
-            info!(
+            trace!(
                 "[LEAF-PERF][PROXY][TCP] direct resolve dropped fake DNS IPs {}:{} remaining={:?}",
                 address, port, ips
             );
@@ -772,7 +772,7 @@ async fn new_tcp_stream_with_fake_dns(
         ips.reverse();
         Resolver::from_ips(ips, *port)
     };
-    info!(
+    trace!(
         "[LEAF-PERF][PROXY][TCP] resolve ready {}:{} in {}ms",
         address,
         port,
@@ -799,7 +799,7 @@ async fn new_tcp_stream_with_fake_dns(
         if !tasks.is_empty() {
             match select_ok(tasks.into_iter()).await {
                 Ok(v) => {
-                    info!(
+                    trace!(
                         "[LEAF-PERF][PROXY][TCP] connect selected {}:{} in {}ms",
                         address,
                         port,
@@ -811,7 +811,7 @@ async fn new_tcp_stream_with_fake_dns(
                     return Ok(v.0.0);
                 }
                 Err(e) => {
-                    info!(
+                    trace!(
                         "[LEAF-PERF][PROXY][TCP] connect batch failed {}:{} in {}ms: {}",
                         address,
                         port,

@@ -151,7 +151,7 @@ impl NatManager {
         self.add_session(sess, dgram_src.clone(), client_ch_tx.clone(), &mut guard)
             .await;
 
-        info!(
+        trace!(
             "[LEAF-PERF][NAT][UDP] added session {} -> {} active={} in {}ms",
             &dgram_src,
             &pkt.dst_addr,
@@ -189,12 +189,12 @@ impl NatManager {
         // TCP stream would block the task.
         tokio::spawn(async move {
             let dispatch_start = Instant::now();
-            info!("[LEAF-PERF][NAT][UDP] dispatch session begin {}", &raddr);
+            trace!("[LEAF-PERF][NAT][UDP] dispatch session begin {}", &raddr);
             // new socket to communicate with the target.
             let socket = match dispatcher.dispatch_udp(sess).await {
                 Ok(s) => s,
                 Err(e) => {
-                    info!(
+                    trace!(
                         "[LEAF-PERF][NAT][UDP] dispatch session failed {} in {}ms: {}",
                         &raddr,
                         dispatch_start.elapsed().as_millis(),
@@ -204,7 +204,7 @@ impl NatManager {
                     return;
                 }
             };
-            info!(
+            trace!(
                 "[LEAF-PERF][NAT][UDP] dispatch session ready {} in {}ms",
                 &raddr,
                 dispatch_start.elapsed().as_millis()
@@ -221,7 +221,7 @@ impl NatManager {
                 loop {
                     match target_sock_recv.recv_from(&mut buf).await {
                         Err(err) => {
-                            info!(
+                            trace!(
                                 "[LEAF-PERF][NAT][UDP] downlink recv failed session {}: {}",
                                 &raddr, err
                             );
@@ -236,14 +236,14 @@ impl NatManager {
                                 SocksAddr::from(raddr.address),
                             );
                             if let Err(err) = client_ch_tx.send(pkt).await {
-                                info!(
+                                trace!(
                                     "[LEAF-PERF][NAT][UDP] downlink send to client failed session {} to {}: {}",
                                     &raddr, &addr, err
                                 );
                                 break;
                             }
                             if last_report.elapsed() >= Duration::from_secs(2) {
-                                info!(
+                                trace!(
                                     "[LEAF-PERF][NAT][UDP] downlink session {} packets={} bytes={} last_addr={}",
                                     &raddr,
                                     downlink_count,
@@ -274,7 +274,7 @@ impl NatManager {
                         }
                     }
                 }
-                info!("[LEAF-PERF][NAT][UDP] downlink session end {}", &raddr);
+                trace!("[LEAF-PERF][NAT][UDP] downlink session end {}", &raddr);
                 sessions.lock().await.remove(&raddr);
             };
 
@@ -296,14 +296,14 @@ impl NatManager {
                     uplink_count += 1;
                     uplink_bytes += pkt.data.len() as u64;
                     if let Err(e) = target_sock_send.send_to(&pkt.data, &pkt.dst_addr).await {
-                        info!(
+                        trace!(
                             "[LEAF-PERF][NAT][UDP] uplink send failed session {} to {}: {:?}",
                             &raddr, &pkt.dst_addr, e
                         );
                         break;
                     }
                     if last_report.elapsed() >= Duration::from_secs(2) {
-                        info!(
+                        trace!(
                             "[LEAF-PERF][NAT][UDP] uplink session {} packets={} bytes={} last_dst={}",
                             &raddr,
                             uplink_count,
@@ -315,7 +315,7 @@ impl NatManager {
                         last_report = Instant::now();
                     }
                 }
-                info!("[LEAF-PERF][NAT][UDP] uplink session end {}", &raddr);
+                trace!("[LEAF-PERF][NAT][UDP] uplink session end {}", &raddr);
             });
         });
     }
