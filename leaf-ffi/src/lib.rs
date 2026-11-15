@@ -253,3 +253,124 @@ pub extern "C" fn leaf_test_config(config_path: *const c_char) -> i32 {
         ERR_CONFIG_PATH
     }
 }
+
+fn into_c_string(s: String) -> *mut c_char {
+    // An interior NUL would make CString::new fail; strip it instead of panicking across FFI.
+    std::ffi::CString::new(s.replace('\0', ""))
+        .unwrap_or_default()
+        .into_raw()
+}
+
+fn from_c_str(s: *const c_char) -> Option<String> {
+    if s.is_null() {
+        return None;
+    }
+    unsafe { CStr::from_ptr(s).to_str().ok().map(str::to_string) }
+}
+
+/// Node list as JSON. Release the result with `free_status`.
+#[no_mangle]
+pub extern "C" fn get_nodes() -> *mut c_char {
+    into_c_string(leaf::get_nodes())
+}
+
+/// Pending response message. Release the result with `free_status`.
+#[no_mangle]
+pub extern "C" fn get_response_msg() -> *mut c_char {
+    into_c_string(leaf::get_response_msg())
+}
+
+#[no_mangle]
+pub extern "C" fn push_client_msg(s: *const c_char) {
+    if let Some(m) = from_c_str(s) { leaf::push_client_msg(m); }
+}
+
+#[no_mangle]
+pub extern "C" fn push_transaction_msg(s: *const c_char) {
+    if let Some(m) = from_c_str(s) { leaf::push_transaction_msg(m); }
+}
+
+#[no_mangle]
+pub extern "C" fn push_sell_msg(s: *const c_char) {
+    if let Some(m) = from_c_str(s) { leaf::push_sell_msg(m); }
+}
+
+#[no_mangle]
+pub extern "C" fn push_order_msg(s: *const c_char) {
+    if let Some(m) = from_c_str(s) { leaf::push_order_msg(m); }
+}
+
+// ---------------------------------------------------------------------------
+// P2P connector (Go, libp2pconnector.a), iOS only.
+//
+// Android loads libp2pconnector.so at runtime through libloading; iOS cannot
+// dlopen a bundled library from an extension, so the Go archive is linked
+// statically into the final binary that also links libleaf.a.  The extern
+// symbols below are resolved at that final link.
+// ---------------------------------------------------------------------------
+#[cfg(target_os = "ios")]
+mod connector {
+    use super::{from_c_str, into_c_string};
+    use std::os::raw::{c_char, c_int};
+    use std::sync::Mutex;
+
+    extern "C" {
+        fn P2PConnectorStart(config_json: *mut c_char) -> c_int;
+        fn P2PConnectorStop() -> c_int;
+        fn P2PConnectorStatus() -> *mut c_char;
+        fn P2PConnectorFree(ptr: *mut c_char);
+    }
+
+    // Set when the last start request was a non-transparent (plain Shadowsocks) config.
+    static DISABLED: Mutex<bool> = Mutex::new(false);
+
+    /// Same rule as the Android glue: only "transparent" / "auto" start the connector.
+    fn transparent_mode(config_json: &str) -> bool {
+        let Some(pos) = config_json.find("\"proxy_mode\"") else { return false };
+        let Some(colon) = config_json[pos..].find(':') else { return false };
+        let rest = config_json[pos + colon + 1..].trim_start();
+        let Some(rest) = rest.strip_prefix('"') else { return false };
+        let Some(end) = rest.find('"') else { return false };
+        let mode = rest[..end].trim();
+        mode.eq_ignore_ascii_case("transparent") || mode.eq_ignore_ascii_case("auto")
+    }
+
+    /// Starts the connector. Returns 0 on success (also 0 when skipped for a
+    /// non-transparent config), -101 for a bad argument, otherwise the Go result.
+    #[no_mangle]
+    pub extern "C" fn leaf_connector_start(config_json: *const c_char) -> i32 {
+        let Some(cfg) = from_c_str(config_json) else { return -101 };
+        if !transparent_mode(&cfg) {
+            *DISABLED.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            return 0;
+        }
+        *DISABLED.lock().unwrap_or_else(|e| e.into_inner()) = false;
+        let Ok(c) = std::ffi::CString::new(cfg) else { return -101 };
+        unsafe { P2PConnectorStart(c.as_ptr() as *mut c_char) as i32 }
+    }
+
+    #[no_mangle]
+    pub extern "C" fn leaf_connector_stop() -> i32 {
+        *DISABLED.lock().unwrap_or_else(|e| e.into_inner()) = false;
+        unsafe { P2PConnectorStop() as i32 }
+    }
+
+    /// Connector status JSON. Release the result with `free_status`.
+    #[no_mangle]
+    pub extern "C" fn leaf_connector_status() -> *mut c_char {
+        if *DISABLED.lock().unwrap_or_else(|e| e.into_inner()) {
+            return into_c_string(
+                "{\"running\":false,\"enabled\":false,\"proxy_mode\":\"shadowsocks\"}".to_string(),
+            );
+        }
+        unsafe {
+            let p = P2PConnectorStatus();
+            if p.is_null() {
+                return into_c_string("{\"running\":false,\"error\":\"nil status\"}".to_string());
+            }
+            let s = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
+            P2PConnectorFree(p);
+            into_c_string(s)
+        }
+    }
+}
