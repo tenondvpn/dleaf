@@ -11,6 +11,19 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::{proxy::*, session::*};
 
+/// 全局累计收发字节（所有出站流 / 数据报之和）。与每连接的 Counter 不同，这里不会随连接结束被清理，
+/// 因此单调递增，适合外部按相邻两次采样的差值计算实时速率。
+/// "recvd" = 从出站（对端）读到的字节 = 用户下载方向；"sent" = 写向出站（对端）的字节 = 用户上传方向。
+pub static GLOBAL_BYTES_RECVD: AtomicU64 = AtomicU64::new(0);
+pub static GLOBAL_BYTES_SENT: AtomicU64 = AtomicU64::new(0);
+
+pub fn global_bytes() -> (u64, u64) {
+    (
+        GLOBAL_BYTES_RECVD.load(Ordering::Relaxed),
+        GLOBAL_BYTES_SENT.load(Ordering::Relaxed),
+    )
+}
+
 pub struct Stream {
     pub inner: AnyStream,
     pub bytes_recvd: Arc<AtomicU64>,
@@ -37,8 +50,9 @@ impl AsyncRead for Stream {
         if buf.filled().is_empty() {
             self.recv_completed.store(true, Ordering::Relaxed);
         } else {
-            self.bytes_recvd
-                .fetch_add(buf.filled().len() as u64, Ordering::Relaxed);
+            let n = buf.filled().len() as u64;
+            self.bytes_recvd.fetch_add(n, Ordering::Relaxed);
+            GLOBAL_BYTES_RECVD.fetch_add(n, Ordering::Relaxed);
         }
         Poll::Ready(Ok(()))
     }
@@ -52,6 +66,7 @@ impl AsyncWrite for Stream {
     ) -> Poll<io::Result<usize>> {
         let n = ready!(Pin::new(&mut self.inner).poll_write(cx, buf))?;
         self.bytes_sent.fetch_add(n as u64, Ordering::Relaxed);
+        GLOBAL_BYTES_SENT.fetch_add(n as u64, Ordering::Relaxed);
         Poll::Ready(Ok(n))
     }
 
@@ -106,6 +121,7 @@ impl OutboundDatagramRecvHalf for DatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
         self.0.recv_from(buf).await.map(|(n, a)| {
             self.1.fetch_add(n as u64, Ordering::Relaxed);
+            GLOBAL_BYTES_RECVD.fetch_add(n as u64, Ordering::Relaxed);
             (n, a)
         })
     }
@@ -128,6 +144,7 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
     async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
         self.0.send_to(buf, target).await.map(|n| {
             self.1.fetch_add(n as u64, Ordering::Relaxed);
+            GLOBAL_BYTES_SENT.fetch_add(n as u64, Ordering::Relaxed);
             n
         })
     }

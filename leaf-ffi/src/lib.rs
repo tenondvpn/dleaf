@@ -303,6 +303,21 @@ fn from_c_str(s: *const c_char) -> Option<String> {
     unsafe { CStr::from_ptr(s).to_str().ok().map(str::to_string) }
 }
 
+/// 累计下载 / 上传字节（出站流量，单调递增）。外部用相邻两次的差除以间隔得到实时速率。
+/// 成功返回 0 并写入两个指针；`stat` feature 未启用时两者恒为 0。
+#[no_mangle]
+pub extern "C" fn leaf_traffic_bytes(down: *mut u64, up: *mut u64) -> i32 {
+    if down.is_null() || up.is_null() {
+        return -1;
+    }
+    let (d, u) = leaf::traffic_bytes();
+    unsafe {
+        *down = d;
+        *up = u;
+    }
+    0
+}
+
 /// Node list as JSON. Release the result with `free_status`.
 #[no_mangle]
 pub extern "C" fn get_nodes() -> *mut c_char {

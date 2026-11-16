@@ -456,6 +456,18 @@ fn json_str(s: &str) -> String {
     out
 }
 
+/// 累计 (下载字节, 上传字节)：来自出站流/数据报的全局计数（需要 `stat` feature，否则恒为 0）。
+pub fn traffic_bytes() -> (u64, u64) {
+    #[cfg(feature = "stat")]
+    {
+        crate::app::stat_manager::global_bytes()
+    }
+    #[cfg(not(feature = "stat"))]
+    {
+        (0, 0)
+    }
+}
+
 pub fn get_status() -> String {
     common::sync_valid_routes::GetValidRoutes()
 }
