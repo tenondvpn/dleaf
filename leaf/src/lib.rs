@@ -133,6 +133,34 @@ impl RuntimeManager {
         }
     }
 
+    /// Which outbound the live router would pick for `host:port` (no connection is made).
+    /// `Err` means "no matching rule": the dispatcher then uses the default outbound.
+    pub async fn route_for(&self, host: &str, port: u16) -> Result<String, Error> {
+        use crate::session::{Session, SocksAddr};
+        let destination = match host.parse::<std::net::IpAddr>() {
+            Ok(ip) => SocksAddr::Ip(std::net::SocketAddr::new(ip, port)),
+            Err(_) => SocksAddr::Domain(host.to_string(), port),
+        };
+        let sess = Session {
+            destination,
+            ..Default::default()
+        };
+        let router = self.router.read().await;
+        router
+            .pick_route(&sess)
+            .await
+            .map(|tag| tag.clone())
+            .map_err(Error::Config)
+    }
+
+    /// Per-server DNS results for `host` from the live resolver (see DnsClient::probe_servers).
+    pub async fn dns_probe(
+        &self,
+        host: &str,
+    ) -> Vec<(std::net::SocketAddr, Vec<std::net::IpAddr>, u128, Option<String>)> {
+        self.dns_client.read().await.probe_servers(host).await
+    }
+
     pub async fn get_outbound_selected(&self, outbound: &str) -> Result<String, Error> {
         if let Some(selector) = self.outbound_manager.read().await.get_selector(outbound) {
             if let Some(tag) = selector.read().await.get_selected_tag() {
@@ -303,6 +331,129 @@ pub fn shutdown(key: RuntimeId) -> bool {
 
 pub fn is_running(key: RuntimeId) -> bool {
     RUNTIME_MANAGER.lock().unwrap().contains_key(&key)
+}
+
+/// Route decisions of the running leaf for a batch of targets, as JSON:
+/// `{"running":bool,"results":[{"host":..,"port":..,"route":"Direct"|"SS"|..,"matched":bool}]}`.
+/// `route` is the outbound the dispatcher would use; `matched=false` means no rule matched and
+/// the default outbound applies.  Nothing is dialed.  Runs the lookups on its own thread so it
+/// is safe to call from any thread, including ones that already hold a runtime.
+/// First registered runtime plus how many exist.  A poisoned lock (a past panic while it was
+/// held) is tolerated: the map itself is still valid, and treating it as "not running" made the
+/// checks report a live VPN as down.
+fn any_manager() -> (Option<Arc<RuntimeManager>>, usize, bool) {
+    match RUNTIME_MANAGER.lock() {
+        Ok(g) => (g.values().next().cloned(), g.len(), false),
+        Err(e) => {
+            let g = e.into_inner();
+            (g.values().next().cloned(), g.len(), true)
+        }
+    }
+}
+
+pub fn route_probe(targets: &[(String, u16)]) -> String {
+    let (manager, count, poisoned) = any_manager();
+    let Some(manager) = manager else {
+        return format!(
+            r#"{{"running":false,"results":[],"runtimes":{},"poisoned":{}}}"#,
+            count, poisoned
+        );
+    };
+    let targets = targets.to_vec();
+    let handle = std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(_) => return Vec::new(),
+        };
+        rt.block_on(async {
+            let mut out = Vec::with_capacity(targets.len());
+            for (host, port) in targets {
+                let (route, matched) = match manager.route_for(&host, port).await {
+                    Ok(tag) => (tag, true),
+                    Err(_) => (String::new(), false),
+                };
+                out.push((host, port, route, matched));
+            }
+            out
+        })
+    });
+    let results = handle.join().unwrap_or_default();
+    let items: Vec<String> = results
+        .iter()
+        .map(|(host, port, route, matched)| {
+            format!(
+                r#"{{"host":{},"port":{},"route":{},"matched":{}}}"#,
+                json_str(host),
+                port,
+                json_str(route),
+                matched
+            )
+        })
+        .collect();
+    format!(r#"{{"running":true,"results":[{}]}}"#, items.join(","))
+}
+
+/// Asks each DNS server of the running leaf for `host`, one by one, as JSON:
+/// `{"running":bool,"host":..,"servers":[{"server":"ip:53","ok":bool,"ms":n,"ips":[..],"error":".."}]}`.
+pub fn dns_probe(host: &str) -> String {
+    let (manager, count, poisoned) = any_manager();
+    let Some(manager) = manager else {
+        return format!(
+            r#"{{"running":false,"host":{},"servers":[],"runtimes":{},"poisoned":{}}}"#,
+            json_str(host),
+            count,
+            poisoned
+        );
+    };
+    let host_owned = host.to_string();
+    let handle = std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(_) => return Vec::new(),
+        };
+        rt.block_on(manager.dns_probe(&host_owned))
+    });
+    let results = handle.join().unwrap_or_default();
+    let items: Vec<String> = results
+        .iter()
+        .map(|(server, ips, ms, err)| {
+            let ips_json: Vec<String> = ips.iter().map(|ip| json_str(&ip.to_string())).collect();
+            format!(
+                r#"{{"server":{},"ok":{},"ms":{},"ips":[{}],"error":{}}}"#,
+                json_str(&server.to_string()),
+                err.is_none() && !ips.is_empty(),
+                ms,
+                ips_json.join(","),
+                json_str(err.as_deref().unwrap_or(""))
+            )
+        })
+        .collect();
+    format!(
+        r#"{{"running":true,"host":{},"servers":[{}]}}"#,
+        json_str(host),
+        items.join(",")
+    )
+}
+
+fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 pub fn get_status() -> String {

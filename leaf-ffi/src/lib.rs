@@ -147,6 +147,41 @@ pub extern "C" fn get_status() -> *mut c_char{
     //std::ffi::CString::new(leaf::get_status().as_str()).unwrap().as_ptr();
 }
 
+fn json_to_c(json: String) -> *mut c_char {
+    std::ffi::CString::new(json.replace('\0', ""))
+        .unwrap_or_default()
+        .into_raw()
+}
+
+/// Which outbound the running leaf picks for "host:port,host:port,..." (nothing is dialed).
+/// Returns JSON (see leaf::route_probe); free it with free_status.
+#[no_mangle]
+pub extern "C" fn leaf_route_probe(targets: *const c_char) -> *mut c_char {
+    let parsed: Vec<(String, u16)> = unsafe { targets.as_ref() }
+        .and_then(|_| unsafe { CStr::from_ptr(targets).to_str().ok() })
+        .unwrap_or("")
+        .split(',')
+        .filter_map(|item| {
+            let (host, port) = item.trim().rsplit_once(':')?;
+            let port = port.parse::<u16>().ok()?;
+            if host.is_empty() { None } else { Some((host.to_string(), port)) }
+        })
+        .collect();
+    json_to_c(leaf::route_probe(&parsed))
+}
+
+/// Per-server DNS results of the running leaf for `host`. Returns JSON (see leaf::dns_probe);
+/// free it with free_status.
+#[no_mangle]
+pub extern "C" fn leaf_dns_probe(host: *const c_char) -> *mut c_char {
+    let host = unsafe { host.as_ref() }
+        .and_then(|_| unsafe { CStr::from_ptr(host).to_str().ok() })
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    json_to_c(leaf::dns_probe(&host))
+}
+
 #[no_mangle]
 pub extern "C" fn free_status(s: *mut c_char) {
     unsafe {

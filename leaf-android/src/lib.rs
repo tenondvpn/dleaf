@@ -394,6 +394,56 @@ pub unsafe extern "C" fn Java_com_leaf_example_aleaf_SimpleVpnService_getNodes(
     java_string(env, leaf::get_nodes())
 }
 
+// Route decisions of the running leaf for "host:port,host:port,..." (no connection is made).
+// Returns JSON, see leaf::route_probe.
+#[allow(non_snake_case)]
+#[no_mangle]
+pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_routeProbe(
+    env: JNIEnv,
+    _: JClass,
+    targets: JString,
+) -> sys::jstring {
+    let json = match catch_unwind(AssertUnwindSafe(|| {
+        let raw = jstring_to_string(env, targets).unwrap_or_default();
+        let parsed: Vec<(String, u16)> = raw
+            .split(',')
+            .filter_map(|item| {
+                let item = item.trim();
+                let (host, port) = item.rsplit_once(':')?;
+                let port = port.parse::<u16>().ok()?;
+                if host.is_empty() {
+                    None
+                } else {
+                    Some((host.to_string(), port))
+                }
+            })
+            .collect();
+        leaf::route_probe(&parsed)
+    })) {
+        Ok(s) => s,
+        Err(_) => r#"{"running":false,"results":[],"error":"panic"}"#.to_string(),
+    };
+    java_string(env, json)
+}
+
+// Per-server DNS results of the running leaf for one host (see leaf::dns_probe).
+#[allow(non_snake_case)]
+#[no_mangle]
+pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_dnsProbe(
+    env: JNIEnv,
+    _: JClass,
+    host: JString,
+) -> sys::jstring {
+    let json = match catch_unwind(AssertUnwindSafe(|| {
+        let host = jstring_to_string(env, host).unwrap_or_default();
+        leaf::dns_probe(host.trim())
+    })) {
+        Ok(s) => s,
+        Err(_) => r#"{"running":false,"host":"","servers":[],"error":"panic"}"#.to_string(),
+    };
+    java_string(env, json)
+}
+
 #[allow(non_snake_case)]
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_leaf_example_aleaf_SimpleVpnService_startP2PConnector(

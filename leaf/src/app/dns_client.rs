@@ -274,6 +274,52 @@ impl DnsClient {
         Err(last_err.unwrap_or_else(|| anyhow!("all lookup attempts failed")))
     }
 
+    /// Asks every configured server for `host` ON ITS OWN (no racing, no cache) and reports
+    /// how each one did: `(server, resolved addresses, elapsed ms, error)`.  Uses the same
+    /// protected UDP socket as normal lookups, so it shows what the real resolver would see.
+    pub async fn probe_servers(
+        &self,
+        host: &str,
+    ) -> Vec<(SocketAddr, Vec<IpAddr>, u128, Option<String>)> {
+        let mut fqdn = host.to_owned();
+        fqdn.push('.');
+        let name = match Name::from_str(&fqdn) {
+            Ok(n) => n,
+            Err(e) => {
+                return self
+                    .servers
+                    .iter()
+                    .map(|s| (*s, Vec::new(), 0, Some(format!("invalid name: {}", e))))
+                    .collect()
+            }
+        };
+        let msg = Self::new_query(name, RecordType::A);
+        let buf = match msg.to_vec() {
+            Ok(b) => b,
+            Err(e) => {
+                return self
+                    .servers
+                    .iter()
+                    .map(|s| (*s, Vec::new(), 0, Some(format!("encode: {}", e))))
+                    .collect()
+            }
+        };
+        let mut tasks = Vec::with_capacity(self.servers.len());
+        for server in &self.servers {
+            let buf = buf.clone();
+            tasks.push(async move {
+                let start = Instant::now();
+                let res = self.query_task(buf, host, server).await;
+                let ms = start.elapsed().as_millis();
+                match res {
+                    Ok(entry) => (*server, entry.ips, ms, None),
+                    Err(e) => (*server, Vec::new(), ms, Some(e.to_string())),
+                }
+            });
+        }
+        futures::future::join_all(tasks).await
+    }
+
     fn new_query(name: Name, ty: RecordType) -> Message {
         let mut msg = Message::new();
         msg.add_query(Query::query(name, ty));
@@ -576,3 +622,25 @@ impl DnsClient {
 }
 
 impl UdpConnector for DnsClient {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn probe_servers_reports_each_dead_server_separately() {
+        // Keep the test fast: these are read once, before the first lookup.
+        std::env::set_var("DNS_TIMEOUT", "1");
+        std::env::set_var("MAX_DNS_RETRIES", "1");
+        let mut dns = crate::config::Dns::new();
+        dns.servers.push("192.0.2.1".to_string()); // TEST-NET-1, never answers
+        dns.servers.push("192.0.2.2".to_string());
+        let client = DnsClient::new(&protobuf::SingularPtrField::some(dns)).unwrap();
+        let res = client.probe_servers("www.example.com").await;
+        assert_eq!(res.len(), 2);
+        for (_, ips, _, err) in &res {
+            assert!(ips.is_empty());
+            assert!(err.is_some());
+        }
+    }
+}

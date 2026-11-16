@@ -669,17 +669,27 @@ impl Router {
             return Ok(&self.pac_direct_tag);
         }
         if sess.destination.is_domain() && self.domain_resolve {
-            let ips = {
-                self.dns_client
-                    .read()
-                    .await
-                    .lookup(
-                        sess.destination
-                            .domain()
-                            .ok_or_else(|| anyhow!("illegal domain name"))?,
-                    )
-                    .map_err(|e| anyhow!("lookup {} failed: {}", sess.destination.host(), e))
-                    .await?
+            let domain = sess
+                .destination
+                .domain()
+                .ok_or_else(|| anyhow!("illegal domain name"))?;
+            // Bounded: an unreachable local DNS must not stall routing; on failure the
+            // IP re-match is skipped and the caller falls back to the default outbound.
+            let ips = match tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                async { self.dns_client.read().await.lookup(domain).await },
+            )
+            .await
+            {
+                Ok(Ok(ips)) => ips,
+                Ok(Err(e)) => {
+                    debug!("route resolve {} failed: {}", sess.destination.host(), e);
+                    Vec::new()
+                }
+                Err(_) => {
+                    debug!("route resolve {} timed out", sess.destination.host());
+                    Vec::new()
+                }
             };
             if !ips.is_empty() {
                 let mut new_sess = sess.clone();
@@ -789,5 +799,304 @@ mod tests {
         assert!(m.is_err());
         let m = PortRangeMatcher::new("22-23-24");
         assert!(m.is_err());
+    }
+
+    // ---- PAC (smart routing) ----------------------------------------------------------
+    //
+    // These use the geo.mmdb / site.dat that ship with the app, so they check the real
+    // split: domestic traffic -> the direct tag, everything else -> the proxy.  A test is
+    // skipped (not failed) when the assets are not present.
+
+    fn app_assets() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("fkey_app")
+            .join("assets")
+            .join("leaf")
+    }
+
+    fn load_site(country: &str) -> Option<Box<dyn Condition>> {
+        let dat = app_assets().join("site.dat");
+        if !dat.is_file() {
+            return None;
+        }
+        let file = File::open(&dat).ok()?;
+        let tag = country.to_uppercase();
+        let mut domains = protobuf::RepeatedField::<config::Router_Rule_Domain>::new();
+        let mut reader = BufReader::with_capacity(2048, file);
+        let mut input = protobuf::CodedInputStream::new(&mut reader);
+        while !input.eof().ok()? {
+            let _ = input.read_raw_byte().ok()?;
+            let mut group = input.read_message::<geosite::SiteGroup>().ok()?;
+            if group.tag != tag {
+                continue;
+            }
+            for d in group.domain.iter() {
+                let mut r = config::Router_Rule_Domain::new();
+                r.value = d.value.clone();
+                r.field_type = match d.field_type {
+                    geosite::Domain_Type::Plain => config::Router_Rule_Domain_Type::PLAIN,
+                    geosite::Domain_Type::Domain => config::Router_Rule_Domain_Type::DOMAIN,
+                    geosite::Domain_Type::Full => config::Router_Rule_Domain_Type::FULL,
+                    geosite::Domain_Type::Regex => continue,
+                };
+                domains.push(r);
+            }
+        }
+        if domains.is_empty() {
+            None
+        } else {
+            Some(Box::new(DomainMatcher::new(&mut domains)))
+        }
+    }
+
+    fn load_mmdb() -> Option<Arc<maxminddb::Reader<Mmap>>> {
+        maxminddb::Reader::open_mmap(app_assets().join("geo.mmdb"))
+            .ok()
+            .map(Arc::new)
+    }
+
+    // A DNS client whose only server never answers: a test that passes with it proves the
+    // routing decision did not depend on DNS.
+    fn dead_dns() -> SyncDnsClient {
+        let mut dns = config::Dns::new();
+        dns.servers.push("192.0.2.1".to_string()); // TEST-NET-1
+        let client = crate::app::dns_client::DnsClient::new(&protobuf::SingularPtrField::some(dns))
+            .expect("dns client");
+        Arc::new(tokio::sync::RwLock::new(client))
+    }
+
+    fn pac_router(country: &str, rules: Vec<Rule>, domain_resolve: bool) -> Option<Router> {
+        let site = load_site(country);
+        let mmdb = load_mmdb();
+        if site.is_none() && mmdb.is_none() {
+            eprintln!("skipping PAC test: no assets under {:?}", app_assets());
+            return None;
+        }
+        Some(Router {
+            rules,
+            domain_resolve,
+            dns_client: dead_dns(),
+            pac_enabled: true,
+            pac_local_country: country.to_uppercase(),
+            pac_direct_tag: "Direct".to_string(),
+            pac_mmdb: mmdb,
+            pac_site_matcher: site,
+        })
+    }
+
+    // One explicit "domain -> SS" rule, like the proxy lists in the real config.
+    fn proxy_domain_rule(value: &str) -> Vec<Rule> {
+        let mut list = protobuf::RepeatedField::<config::Router_Rule_Domain>::new();
+        let mut d = config::Router_Rule_Domain::new();
+        d.value = value.to_string();
+        d.field_type = config::Router_Rule_Domain_Type::DOMAIN;
+        list.push(d);
+        vec![Rule::new(
+            "SS".to_string(),
+            Box::new(DomainMatcher::new(&mut list)),
+        )]
+    }
+
+    async fn route(r: &Router, dest: SocksAddr) -> String {
+        let sess = Session {
+            destination: dest,
+            ..Default::default()
+        };
+        match r.pick_route(&sess).await {
+            Ok(tag) => tag.clone(),
+            // the dispatcher uses the default (proxy) outbound on "no matching rules"
+            Err(_) => "SS(default)".to_string(),
+        }
+    }
+
+    fn dom(d: &str) -> SocksAddr {
+        SocksAddr::Domain(d.to_string(), 443)
+    }
+
+    fn ip(a: &str) -> SocksAddr {
+        SocksAddr::Ip(std::net::SocketAddr::new(a.parse().unwrap(), 443))
+    }
+
+    #[tokio::test]
+    async fn pac_cn_domestic_domains_go_direct() {
+        let Some(r) = pac_router("CN", Vec::new(), false) else { return };
+        for d in ["www.baidu.com", "a.baidu.com", "www.qq.com", "map.baidu.com"] {
+            assert_eq!(route(&r, dom(d)).await, "Direct", "{} should be direct", d);
+        }
+    }
+
+    #[tokio::test]
+    async fn pac_cn_foreign_domains_use_proxy() {
+        let Some(r) = pac_router("CN", Vec::new(), false) else { return };
+        for d in ["www.google.com", "www.youtube.com", "github.com", "twitter.com"] {
+            assert_ne!(route(&r, dom(d)).await, "Direct", "{} must not be direct", d);
+        }
+    }
+
+    #[tokio::test]
+    async fn pac_cn_domestic_ip_goes_direct_foreign_ip_proxied() {
+        let Some(r) = pac_router("CN", Vec::new(), false) else { return };
+        if r.pac_mmdb.is_none() {
+            return;
+        }
+        // 114.114.114.114 (114DNS) and 223.5.5.5 (AliDNS) are CN; 8.8.8.8 and 1.1.1.1 are not.
+        assert_eq!(route(&r, ip("114.114.114.114")).await, "Direct");
+        assert_eq!(route(&r, ip("223.5.5.5")).await, "Direct");
+        assert_ne!(route(&r, ip("8.8.8.8")).await, "Direct");
+        assert_ne!(route(&r, ip("1.1.1.1")).await, "Direct");
+    }
+
+    #[tokio::test]
+    async fn pac_explicit_proxy_rule_wins_over_pac_direct() {
+        // A name on the proxy list goes to the proxy even though PAC also knows it as
+        // domestic; other domestic names are unaffected.
+        let Some(r) = pac_router("CN", proxy_domain_rule("baidu.com"), false) else { return };
+        assert_eq!(route(&r, dom("www.baidu.com")).await, "SS");
+        assert_eq!(route(&r, dom("www.qq.com")).await, "Direct");
+    }
+
+    #[tokio::test]
+    async fn pac_decision_does_not_depend_on_dns() {
+        // With domain_resolve on and every DNS server dead, domestic domains still go direct
+        // (PAC matches the domain before any lookup) and foreign ones fall through to the
+        // default proxy within the bounded resolve timeout instead of failing.
+        let Some(r) = pac_router("CN", Vec::new(), true) else { return };
+        assert_eq!(route(&r, dom("www.baidu.com")).await, "Direct");
+        let started = std::time::Instant::now();
+        let got = route(&r, dom("www.google.com")).await;
+        assert_ne!(got, "Direct");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "route resolve must be bounded, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn pac_disabled_sends_nothing_direct() {
+        let Some(mut r) = pac_router("CN", Vec::new(), false) else { return };
+        r.pac_enabled = false;
+        for d in ["www.baidu.com", "www.google.com"] {
+            assert_ne!(route(&r, dom(d)).await, "Direct", "{} with PAC off", d);
+        }
+    }
+
+    #[tokio::test]
+    async fn pac_country_without_any_rules_does_not_direct_domains() {
+        // A country with no site.dat group and no JSON entry must not direct domains.
+        let Some(r) = pac_router("ZZ", Vec::new(), false) else { return };
+        assert_ne!(route(&r, dom("www.google.com")).await, "Direct");
+        assert_ne!(route(&r, dom("www.naver.com")).await, "Direct");
+    }
+
+    // ---- per-country rules from pac_direct_domains.json (what the app really ships) ----
+
+    // Builds "DOMAIN-SUFFIX x -> Direct" rules from the JSON the same way PacDirectDomains.kt
+    // turns them into leaf [Rule] lines, then routes with a PAC-less router.
+    fn json_country_suffixes(code: &str) -> Option<Vec<String>> {
+        let raw = std::fs::read_to_string(app_assets().join("pac_direct_domains.json")).ok()?;
+        let root: serde_json::Value = serde_json::from_str(&raw).ok()?;
+        let arr = root.get("countries")?.get(code)?.get("suffixes")?.as_array()?;
+        Some(arr.iter().filter_map(|v| v.as_str().map(|s| s.to_lowercase())).collect())
+    }
+
+    fn direct_rules(suffixes: &[String]) -> Vec<Rule> {
+        let mut list = protobuf::RepeatedField::<config::Router_Rule_Domain>::new();
+        for s in suffixes {
+            let mut d = config::Router_Rule_Domain::new();
+            d.value = s.clone();
+            d.field_type = config::Router_Rule_Domain_Type::DOMAIN;
+            list.push(d);
+        }
+        vec![Rule::new(
+            "Direct".to_string(),
+            Box::new(DomainMatcher::new(&mut list)),
+        )]
+    }
+
+    fn rules_router(rules: Vec<Rule>) -> Router {
+        Router {
+            rules,
+            domain_resolve: false,
+            dns_client: dead_dns(),
+            pac_enabled: false,
+            pac_local_country: String::new(),
+            pac_direct_tag: "Direct".to_string(),
+            pac_mmdb: None,
+            pac_site_matcher: None,
+        }
+    }
+
+    // (country, domains that must be direct)
+    const COUNTRY_SAMPLES: &[(&str, &[&str])] = &[
+        ("HK", &["www.gov.hk", "www.hsbc.com.hk", "www.hktvmall.com"]),
+        ("JP", &["www.rakuten.co.jp", "www.yahoo.co.jp", "www.amazon.co.jp"]),
+        ("SG", &["www.gov.sg", "www.dbs.com.sg", "shopee.sg"]),
+        ("TW", &["www.gov.tw", "www.cathaybk.com.tw", "shopee.tw"]),
+        ("KR", &["www.naver.com", "www.coupang.com", "www.go.kr"]),
+        ("AU", &["www.gov.au", "www.commbank.com.au", "www.coles.com.au"]),
+        ("IN", &["www.gov.in", "www.flipkart.com", "www.swiggy.com"]),
+        ("MY", &["www.gov.my", "www.maybank2u.com.my", "shopee.com.my"]),
+        ("TH", &["www.go.th", "www.kasikornbank.com", "shopee.co.th"]),
+        ("VN", &["www.gov.vn", "www.momo.vn", "tiki.vn"]),
+        ("ID", &["www.go.id", "www.tokopedia.com", "shopee.co.id"]),
+        ("PH", &["www.gov.ph", "www.gcash.com", "shopee.ph"]),
+        ("GB", &["www.gov.uk", "www.nhs.uk", "www.bt.com"]),
+        ("UK", &["www.gov.uk", "www.nhs.uk", "www.bt.com"]),
+        ("DE", &["www.bahn.de", "www.telekom.de", "www.otto.de"]),
+        ("NL", &["www.overheid.nl", "www.ing.nl", "www.bol.com"]),
+        ("CH", &["www.admin.ch", "www.sbb.ch", "www.ubs.com"]),
+        ("FR", &["www.gouv.fr", "www.orange.fr", "www.leboncoin.fr"]),
+        ("SE", &["www.government.se", "www.swedbank.se", "www.blocket.se"]),
+        ("PL", &["www.gov.pl", "www.allegro.pl", "www.mbank.pl"]),
+        ("IT", &["www.gov.it", "www.poste.it", "www.subito.it"]),
+        ("ES", &["www.gob.es", "www.bbva.es", "www.idealista.com"]),
+        ("FI", &["www.suomi.fi", "www.op.fi", "www.verkkokauppa.com"]),
+        ("RO", &["www.gov.ro", "www.emag.ro", "www.digi.ro"]),
+        ("UA", &["www.gov.ua", "www.monobank.ua", "www.olx.ua"]),
+        ("US", &["www.irs.gov", "www.chase.com", "www.walmart.com"]),
+        ("CA", &["www.canada.ca", "www.rbcroyalbank.com", "www.kijiji.ca"]),
+        ("BR", &["www.gov.br", "www.nubank.com.br", "www.ifood.com.br"]),
+        ("AR", &["www.argentina.gob.ar", "www.mercadolibre.com.ar"]),
+        ("MX", &["www.gob.mx", "www.telcel.com", "www.liverpool.com.mx"]),
+        ("TR", &["www.turkiye.gov.tr", "www.trendyol.com", "www.sahibinden.com"]),
+        ("AE", &["www.gov.ae", "www.noon.com", "www.careem.com"]),
+        ("CN", &["www.baidu.com", "www.qq.com", "www.taobao.com"]),
+        ("RU", &["www.yandex.ru", "www.vk.com", "www.gosuslugi.ru"]),
+        ("IR", &["www.aparat.com"]),
+    ];
+
+    // Foreign names that must never be direct anywhere.
+    const FOREIGN: &[&str] = &["www.google.com", "www.youtube.com", "github.com", "twitter.com"];
+
+    #[tokio::test]
+    async fn pac_every_country_routes_its_own_domains_direct() {
+        let mut checked = 0usize;
+        let mut failures = Vec::<String>::new();
+        for (code, domains) in COUNTRY_SAMPLES {
+            let Some(suffixes) = json_country_suffixes(code) else {
+                failures.push(format!("{code}: no entry in pac_direct_domains.json"));
+                continue;
+            };
+            let r = rules_router(direct_rules(&suffixes));
+            for d in *domains {
+                checked += 1;
+                let got = route(&r, dom(d)).await;
+                if got != "Direct" {
+                    failures.push(format!("{code}: {d} -> {got}, want Direct"));
+                }
+            }
+            for d in FOREIGN {
+                checked += 1;
+                let got = route(&r, dom(d)).await;
+                if got == "Direct" {
+                    failures.push(format!("{code}: {d} must not be Direct"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{} of {} checks failed:\n{}", failures.len(), checked,
+            failures.join("\n"));
     }
 }
