@@ -343,7 +343,7 @@ pub extern "C" fn push_order_msg(s: *const c_char) {
 // statically into the final binary that also links libleaf.a.  The extern
 // symbols below are resolved at that final link.
 // ---------------------------------------------------------------------------
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 mod connector {
     use super::{from_c_str, into_c_string};
     use std::os::raw::{c_char, c_int};
