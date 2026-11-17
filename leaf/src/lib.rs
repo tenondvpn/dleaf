@@ -484,6 +484,11 @@ pub fn set_pk_hash(pk: String) {
     common::sync_valid_routes::SetClientPkHash(pk);
 }
 
+/// Forgets the handshake state of one vpn node (see `sync_valid_routes::ClearNode`).
+pub fn clear_node(ip: &str) -> bool {
+    common::sync_valid_routes::ClearNode(ip)
+}
+
 pub fn set_p2p_ss(enabled: bool) {
     common::sync_valid_routes::SetP2pSs(enabled);
 }

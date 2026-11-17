@@ -284,6 +284,31 @@ fn stop_leaf() -> sys::jboolean {
     }
 }
 
+/// Re-reads the config file the running leaf was started with and rebuilds its outbounds,
+/// routing rules and DNS, leaving the TUN and the listeners alone.  Used to swap the vpn node
+/// (its key and address live in the shadowsocks outbound's password) without tearing the
+/// tunnel down.  Returns 0 on success, a negative number otherwise (-1: reload failed,
+/// -2: no running leaf, -200: native panic).
+///
+/// Blocks until the reload finished, so it must not be called from the thread that runs leaf.
+///
+/// What a reload does NOT pick up: the PAC settings (PAC_MODE / LOCAL_COUNTRY are read once at
+/// start), the TUN fd and the listeners.  Use it only to change what the config file says about
+/// outbounds, routing rules and DNS; the global client public key (`set_pk`) is not in the file
+/// and must be set before calling this.
+fn reload_leaf() -> i32 {
+    if !leaf::is_running(0) {
+        return -2;
+    }
+    match leaf::reload(0) {
+        Ok(()) => 0,
+        Err(e) => {
+            android_log_error(&format!("leaf reload failed: {}", e));
+            -1
+        }
+    }
+}
+
 fn is_leaf_running() -> sys::jboolean {
     if leaf::is_running(0) {
         sys::JNI_TRUE
@@ -365,6 +390,61 @@ pub unsafe extern "C" fn Java_com_leaf_example_aleaf_SimpleVpnService_stopLeaf(
     _: JClass,
 ) -> sys::jboolean {
     stop_leaf()
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_leaf_example_aleaf_SimpleVpnService_clearNode(
+    env: JNIEnv,
+    _: JClass,
+    ip: JString,
+) -> sys::jboolean {
+    let ip = match jstring_to_string(env, ip) {
+        Ok(ip) => ip,
+        Err(e) => {
+            android_log_error(&format!("clearNode: {}", e));
+            return sys::JNI_FALSE;
+        }
+    };
+    match catch_unwind(AssertUnwindSafe(|| leaf::clear_node(&ip))) {
+        Ok(true) => sys::JNI_TRUE,
+        Ok(false) => sys::JNI_FALSE,
+        Err(payload) => {
+            android_log_error(&format!(
+                "clearNode caught native panic: {}",
+                panic_payload_to_string(payload.as_ref())
+            ));
+            sys::JNI_FALSE
+        }
+    }
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_clearNode(
+    env: JNIEnv,
+    class: JClass,
+    ip: JString,
+) -> sys::jboolean {
+    Java_com_leaf_example_aleaf_SimpleVpnService_clearNode(env, class, ip)
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_leaf_example_aleaf_SimpleVpnService_reloadLeaf(
+    _: JNIEnv,
+    _: JClass,
+) -> sys::jint {
+    match catch_unwind(AssertUnwindSafe(reload_leaf)) {
+        Ok(result) => result as sys::jint,
+        Err(payload) => {
+            android_log_error(&format!(
+                "reloadLeaf caught native panic: {}",
+                panic_payload_to_string(payload.as_ref())
+            ));
+            -200
+        }
+    }
 }
 
 #[allow(non_snake_case)]
@@ -598,6 +678,15 @@ pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_stopLeaf(
     class: JClass,
 ) -> sys::jboolean {
     Java_com_leaf_example_aleaf_SimpleVpnService_stopLeaf(env, class)
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_reloadLeaf(
+    env: JNIEnv,
+    class: JClass,
+) -> sys::jint {
+    Java_com_leaf_example_aleaf_SimpleVpnService_reloadLeaf(env, class)
 }
 
 #[allow(non_snake_case)]

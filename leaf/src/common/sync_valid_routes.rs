@@ -95,6 +95,19 @@ pub fn GetResponseStatus(svr_add: String) -> bool {
     *val
 }
 
+/// Forgets what was learned about ONE vpn node: that it already holds this client's full
+/// public key (so the next packet sends the short hash) and the cached hash.  Both are keyed
+/// by the node's dotted-quad ip, the same string tcp.rs and udp.rs look them up with.
+///
+/// Used when a node is swapped out of a running session: a later switch back to it must start
+/// from "full key first" again, since the server may have dropped this client meanwhile.
+/// Other nodes' state is left alone.  Returns whether anything was removed.
+pub fn ClearNode(svr_add: &str) -> bool {
+    let a = connection_map.lock().unwrap().remove(svr_add).is_some();
+    let b = connection_status.lock().unwrap().remove(svr_add).is_some();
+    a || b
+}
+
 pub fn ClearAll() {
     valid_routes.lock().unwrap().clear();
     connection_map.lock().unwrap().clear();
@@ -216,5 +229,53 @@ pub fn GetClientPkHash() -> String {
     } else {
         let mut v = client_pk_hash.lock().unwrap().clone();
         v
+    }
+}
+
+#[cfg(test)]
+mod clear_node_tests {
+    use super::*;
+
+    // The tables are process-wide and tests run in parallel, so every test uses its own
+    // addresses and never calls ClearAll().
+
+    #[test]
+    fn clears_only_the_given_node() {
+        SetResponseStatus("198.51.100.1".to_string(), true);
+        SetResponseHash("198.51.100.1".to_string(), "h1".to_string());
+        SetResponseStatus("198.51.100.2".to_string(), true);
+        SetResponseHash("198.51.100.2".to_string(), "h2".to_string());
+
+        assert!(ClearNode("198.51.100.1"));
+
+        assert!(!GetResponseStatus("198.51.100.1".to_string()));
+        assert_eq!(GetResponseHash("198.51.100.1".to_string()), "");
+        assert!(GetResponseStatus("198.51.100.2".to_string()), "other node must keep its state");
+        assert_eq!(GetResponseHash("198.51.100.2".to_string()), "h2");
+    }
+
+    #[test]
+    fn unknown_node_is_a_harmless_no_op() {
+        assert!(!ClearNode("198.51.100.77"));
+        assert!(!GetResponseStatus("198.51.100.77".to_string()));
+    }
+
+    #[test]
+    fn a_node_that_only_has_a_hash_or_only_a_status_is_still_cleared() {
+        SetResponseHash("198.51.100.3".to_string(), "h3".to_string());
+        assert!(ClearNode("198.51.100.3"));
+        assert_eq!(GetResponseHash("198.51.100.3".to_string()), "");
+
+        SetResponseStatus("198.51.100.4".to_string(), true);
+        assert!(ClearNode("198.51.100.4"));
+        assert!(!GetResponseStatus("198.51.100.4".to_string()));
+    }
+
+    #[test]
+    fn cleared_node_can_be_marked_again() {
+        SetResponseStatus("198.51.100.5".to_string(), true);
+        ClearNode("198.51.100.5");
+        SetResponseStatus("198.51.100.5".to_string(), true);
+        assert!(GetResponseStatus("198.51.100.5".to_string()));
     }
 }
