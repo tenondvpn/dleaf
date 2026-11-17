@@ -426,6 +426,18 @@ pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_routeProbe(
     java_string(env, json)
 }
 
+// Cumulative "down,up" bytes through leaf's outbounds (monotonic; the caller differences two
+// samples for a rate).  "0,0" until ENABLE_STATS is on and traffic flows.
+#[allow(non_snake_case)]
+#[no_mangle]
+pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_trafficBytes(
+    env: JNIEnv,
+    _: JClass,
+) -> sys::jstring {
+    let (down, up) = leaf::traffic_bytes();
+    java_string(env, format!("{},{}", down, up))
+}
+
 // Per-server DNS results of the running leaf for one host (see leaf::dns_probe).
 #[allow(non_snake_case)]
 #[no_mangle]

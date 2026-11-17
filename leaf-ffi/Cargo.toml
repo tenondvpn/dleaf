@@ -22,6 +22,10 @@ default-openssl = [
     "leaf/default-openssl",
 ]
 
+default-ios = [
+    "leaf/default-ios",
+]
+
 auto-reload = ["leaf/auto-reload"]
 
 [dependencies]

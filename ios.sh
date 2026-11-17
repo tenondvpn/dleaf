@@ -73,7 +73,7 @@ for target in "${targets[@]}"; do
         -p leaf-ffi \
         --target "$target" \
         --no-default-features \
-        --features default-ring \
+        --features default-ios \
         ${profile_arg+"${profile_arg[@]}"}
 done
 
