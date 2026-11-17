@@ -38,6 +38,8 @@ default-ios = [
     "outbound-direct",
     "outbound-drop",
     "outbound-shadowsocks",
+    # 健康监控按流量计数判断隧道是否停滞（stat_manager）；没有它 traffic_bytes() 恒为 0。
+    "stat",
 ]
 
 default-openssl = [

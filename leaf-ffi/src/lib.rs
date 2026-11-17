@@ -303,6 +303,18 @@ fn from_c_str(s: *const c_char) -> Option<String> {
     unsafe { CStr::from_ptr(s).to_str().ok().map(str::to_string) }
 }
 
+/// 忘记某个 vpn 节点的握手状态（对应 Android 的 clearNode）。节点被换下后可能再被换回，
+/// 到那时服务端可能已忘记本客户端，所以必须重新发送完整密钥。返回 1 表示清掉了状态，0 表示没有。
+#[no_mangle]
+pub extern "C" fn leaf_clear_node(ip: *const c_char) -> i32 {
+    match from_c_str(ip) {
+        Some(ip) if !ip.is_empty() => {
+            if leaf::clear_node(&ip) { 1 } else { 0 }
+        }
+        _ => 0,
+    }
+}
+
 /// 累计下载 / 上传字节（出站流量，单调递增）。外部用相邻两次的差除以间隔得到实时速率。
 /// 成功返回 0 并写入两个指针；`stat` feature 未启用时两者恒为 0。
 #[no_mangle]
