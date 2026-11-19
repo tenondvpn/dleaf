@@ -1,7 +1,7 @@
 use std::env;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, AtomicU8};
 
 use lazy_static::lazy_static;
 
@@ -140,10 +140,26 @@ lazy_static! {
 }
 
 lazy_static! {
-    /// 实验开关：丢弃应用发往 UDP 443 的数据报（YouTube/Chrome 的 QUIC），应用会回落到 TCP。
+    /// 丢弃应用发往 UDP 443 的数据报（YouTube/Chrome 的 QUIC），应用会回落到 TCP。
     /// 环境变量 DROP_QUIC=true 打开，默认关闭；其余 UDP（DNS、语音等）不受影响。
     /// 数据报在 TUN 入口就被丢弃，不会进入 NAT 会话，也不会经连接器发往 Hysteria2。
+    /// 这是进程内只读一次的默认值；宿主需要按会话切换时用 `set_drop_quic`（见 `drop_quic()`）。
     pub static ref DROP_QUIC: bool = get_env_var_or("DROP_QUIC", false);
+}
+
+/// 运行时对 `DROP_QUIC` 的覆盖：0 = 没设置过（用环境变量）、1 = 放行 QUIC、2 = 丢弃 QUIC。
+/// 环境变量在进程里只读一次；iOS 的网络扩展进程可能在两次连接之间被复用，
+/// 用户在设置里改了"原生 QUIC"后必须在下一次连接立即生效，所以用这个原子量。
+pub static DROP_QUIC_OVERRIDE: AtomicU8 = AtomicU8::new(0);
+
+/// 当前是否丢弃应用的 UDP 443 数据报。每个 UDP 数据报都会调用，只做一次原子读取。
+#[inline]
+pub fn drop_quic() -> bool {
+    match DROP_QUIC_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => *DROP_QUIC,
+    }
 }
 
 #[cfg(feature = "stat")]

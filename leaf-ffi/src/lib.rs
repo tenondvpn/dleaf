@@ -337,6 +337,13 @@ pub extern "C" fn leaf_tun_tcp_rejected() -> u64 {
     leaf::tun_tcp_rejected()
 }
 
+/// 设置是否在 TUN 入口丢弃应用发往 UDP 443 的数据报（QUIC）：`true` 丢弃（应用回落到 TCP），
+/// `false` 放行。覆盖环境变量 `DROP_QUIC`，立即生效，可在 `leaf_run` 之前或之后、任意次调用。
+#[no_mangle]
+pub extern "C" fn leaf_set_drop_quic(drop: bool) {
+    leaf::set_drop_quic(drop);
+}
+
 /// TUN 入口各阶段的诊断计数（JSON）：utun 读写包数、lwip 收包是否变慢、TCP 接受/在途、UDP/DNS 数。
 /// 用 `free_status` 释放返回值。
 #[no_mangle]

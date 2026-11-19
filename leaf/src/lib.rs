@@ -473,6 +473,12 @@ pub fn tun_tcp_rejected() -> u64 {
     option::TUN_TCP_REJECTED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// 按会话设置是否丢弃应用发往 UDP 443 的数据报（QUIC）：`true` 丢弃（应用回落到 TCP），
+/// `false` 放行。覆盖环境变量 `DROP_QUIC`，对之后收到的每个数据报立即生效。
+pub fn set_drop_quic(drop: bool) {
+    option::DROP_QUIC_OVERRIDE.store(if drop { 2 } else { 1 }, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// TUN 入口各阶段的诊断计数（JSON）。带 `_max_ms` 的字段读出后清零，其余是累计值。
 pub fn tun_stats() -> String {
     option::tun_stats::json()

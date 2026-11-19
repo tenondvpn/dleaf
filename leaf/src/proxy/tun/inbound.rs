@@ -382,8 +382,8 @@ async fn handle_inbound_datagram(
                     }
                 }
 
-                // 实验开关 DROP_QUIC：丢弃发往 UDP 443 的数据报（QUIC），逼应用回落到 TCP。
-                if *option::DROP_QUIC && dst_addr.port() == 443 {
+                // DROP_QUIC：丢弃发往 UDP 443 的数据报（QUIC），逼应用回落到 TCP（见 option::drop_quic）。
+                if dst_addr.port() == 443 && option::drop_quic() {
                     option::tun_stats::UDP_DROP443
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     continue;
