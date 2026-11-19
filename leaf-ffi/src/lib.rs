@@ -330,6 +330,20 @@ pub extern "C" fn leaf_traffic_bytes(down: *mut u64, up: *mut u64) -> i32 {
     0
 }
 
+/// 因 TUN TCP 并发上限（iOS 默认 64）已满而被直接关闭的连接累计数，单调递增。
+/// 宿主用相邻两次的差判断"并发上限是不是瓶颈"。
+#[no_mangle]
+pub extern "C" fn leaf_tun_tcp_rejected() -> u64 {
+    leaf::tun_tcp_rejected()
+}
+
+/// TUN 入口各阶段的诊断计数（JSON）：utun 读写包数、lwip 收包是否变慢、TCP 接受/在途、UDP/DNS 数。
+/// 用 `free_status` 释放返回值。
+#[no_mangle]
+pub extern "C" fn leaf_tun_stats() -> *mut c_char {
+    into_c_string(leaf::tun_stats())
+}
+
 /// Node list as JSON. Release the result with `free_status`.
 #[no_mangle]
 pub extern "C" fn get_nodes() -> *mut c_char {

@@ -1,8 +1,83 @@
 use std::env;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::atomic::AtomicU64;
 
 use lazy_static::lazy_static;
+
+/// 因 `TUN_TCP_CONCURRENCY` 已满而被直接关闭的 TUN TCP 连接累计数。
+/// iOS / macOS 的 leaf 日志是空实现（`mobile/logger.rs` 的 `log_out`），那条 warn 看不到，
+/// 所以另外用计数器暴露给宿主（`leaf::tun_tcp_rejected()`）。
+pub static TUN_TCP_REJECTED: AtomicU64 = AtomicU64::new(0);
+
+/// TUN 入口各阶段的诊断计数：utun 读到多少包、lwip 吞包是否变慢、TCP 接受/在途多少、
+/// UDP 与 DNS 收到多少。全部是原子计数，不改变数据路径。卡顿时用它判断包停在哪一级。
+/// 宿主通过 `leaf::tun_stats()` 取 JSON；带 `_max_ms` 的字段读出后清零（只表示上一个间隔）。
+pub mod tun_stats {
+    use std::sync::atomic::{AtomicI64, AtomicU64, Ordering::Relaxed};
+
+    pub static PKT_IN: AtomicU64 = AtomicU64::new(0); // utun -> lwip 的包
+    pub static BYTES_IN: AtomicU64 = AtomicU64::new(0);
+    pub static PKT_OUT: AtomicU64 = AtomicU64::new(0); // lwip -> utun 的包
+    pub static BYTES_OUT: AtomicU64 = AtomicU64::new(0);
+    pub static IN_SEND_MAX_MS: AtomicU64 = AtomicU64::new(0); // 把包交给 lwip 的最长耗时
+    pub static IN_SEND_SLOW: AtomicU64 = AtomicU64::new(0); // 其中 > 100ms 的次数
+    pub static OUT_SEND_MAX_MS: AtomicU64 = AtomicU64::new(0); // 把包写回 utun 的最长耗时
+    pub static OUT_SEND_SLOW: AtomicU64 = AtomicU64::new(0);
+    pub static TCP_ACCEPTED: AtomicU64 = AtomicU64::new(0); // lwip 接受的 TCP 连接
+    pub static TCP_ACTIVE: AtomicI64 = AtomicI64::new(0); // 在途（已接受、尚未结束）
+    pub static UDP_UP: AtomicU64 = AtomicU64::new(0); // 从 lwip 收到的 UDP 数据报
+    pub static UDP_DOWN: AtomicU64 = AtomicU64::new(0); // 回给 lwip 的 UDP 数据报
+    pub static DNS: AtomicU64 = AtomicU64::new(0); // 其中目的端口 53 的
+    pub static DNS_FAKE: AtomicU64 = AtomicU64::new(0); // 生成了假响应
+    pub static DNS_ERR: AtomicU64 = AtomicU64::new(0); // 假响应失败（转为普通 UDP）
+    pub static DNS_MAX_MS: AtomicU64 = AtomicU64::new(0); // 生成假响应的最长耗时
+    pub static UDP_DROP443: AtomicU64 = AtomicU64::new(0); // 因 DROP_QUIC 开关被丢弃的 UDP 443 数据报
+
+    const SLOW_MS: u64 = 100;
+
+    pub fn note_in_send(ms: u64) {
+        IN_SEND_MAX_MS.fetch_max(ms, Relaxed);
+        if ms > SLOW_MS {
+            IN_SEND_SLOW.fetch_add(1, Relaxed);
+        }
+    }
+
+    pub fn note_out_send(ms: u64) {
+        OUT_SEND_MAX_MS.fetch_max(ms, Relaxed);
+        if ms > SLOW_MS {
+            OUT_SEND_SLOW.fetch_add(1, Relaxed);
+        }
+    }
+
+    pub fn json() -> String {
+        format!(
+            concat!(
+                "{{\"pkt_in\":{},\"bytes_in\":{},\"pkt_out\":{},\"bytes_out\":{},",
+                "\"in_send_max_ms\":{},\"in_send_slow\":{},\"out_send_max_ms\":{},\"out_send_slow\":{},",
+                "\"tcp_acc\":{},\"tcp_act\":{},\"udp_up\":{},\"udp_down\":{},",
+                "\"dns\":{},\"dns_fake\":{},\"dns_err\":{},\"dns_max_ms\":{},\"udp_drop443\":{}}}"
+            ),
+            PKT_IN.load(Relaxed),
+            BYTES_IN.load(Relaxed),
+            PKT_OUT.load(Relaxed),
+            BYTES_OUT.load(Relaxed),
+            IN_SEND_MAX_MS.swap(0, Relaxed),
+            IN_SEND_SLOW.load(Relaxed),
+            OUT_SEND_MAX_MS.swap(0, Relaxed),
+            OUT_SEND_SLOW.load(Relaxed),
+            TCP_ACCEPTED.load(Relaxed),
+            TCP_ACTIVE.load(Relaxed),
+            UDP_UP.load(Relaxed),
+            UDP_DOWN.load(Relaxed),
+            DNS.load(Relaxed),
+            DNS_FAKE.load(Relaxed),
+            DNS_ERR.load(Relaxed),
+            DNS_MAX_MS.swap(0, Relaxed),
+            UDP_DROP443.load(Relaxed),
+        )
+    }
+}
 
 // Gets an environment variable by a key and parses as type `T` or returns
 // the provided default value.
@@ -62,6 +137,13 @@ lazy_static! {
     pub static ref DNS_CACHE_SIZE: usize = {
         get_env_var_or("DNS_CACHE_SIZE", 512)
     };
+}
+
+lazy_static! {
+    /// 实验开关：丢弃应用发往 UDP 443 的数据报（YouTube/Chrome 的 QUIC），应用会回落到 TCP。
+    /// 环境变量 DROP_QUIC=true 打开，默认关闭；其余 UDP（DNS、语音等）不受影响。
+    /// 数据报在 TUN 入口就被丢弃，不会进入 NAT 会话，也不会经连接器发往 Hysteria2。
+    pub static ref DROP_QUIC: bool = get_env_var_or("DROP_QUIC", false);
 }
 
 #[cfg(feature = "stat")]

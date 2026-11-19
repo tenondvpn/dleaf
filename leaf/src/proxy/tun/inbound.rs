@@ -286,6 +286,7 @@ async fn handle_inbound_datagram(
         while let Some(pkt) = l_rx.recv().await {
             downlink_count += 1;
             downlink_bytes += pkt.data.len() as u64;
+            option::tun_stats::UDP_DOWN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let src_addr = match pkt.src_addr {
                 SocksAddr::Ip(a) => a,
                 SocksAddr::Domain(domain, port) => {
@@ -331,6 +332,7 @@ async fn handle_inbound_datagram(
             Ok((data, src_addr, dst_addr)) => {
                 uplink_count += 1;
                 uplink_bytes += data.len() as u64;
+                option::tun_stats::UDP_UP.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 if last_uplink_report.elapsed() >= Duration::from_secs(2) {
                     trace!(
                         "[TUN][UDP] uplink packets={} bytes={} last_src={} last_dst={}",
@@ -342,14 +344,22 @@ async fn handle_inbound_datagram(
                 }
                 // Fake DNS logic.
                 if dst_addr.port() == 53 {
+                    option::tun_stats::DNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let dns_start = Instant::now();
                     log::trace!(
                         "[TUN][UDP][DNS] fake dns packet {} -> {}",
                         src_addr,
                         dst_addr
                     );
-                    match fakedns.generate_fake_response(&data).await {
+                    let fake = fakedns.generate_fake_response(&data).await;
+                    option::tun_stats::DNS_MAX_MS.fetch_max(
+                        dns_start.elapsed().as_millis() as u64,
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                    match fake {
                         Ok(resp) => {
+                            option::tun_stats::DNS_FAKE
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             if let Err(e) = ls.send_to(resp.as_ref(), &dst_addr, &src_addr) {
                                 warn!(
                                     "[TUN][UDP][DNS] send fake response failed: {}",
@@ -365,9 +375,18 @@ async fn handle_inbound_datagram(
                             continue;
                         }
                         Err(err) => {
+                            option::tun_stats::DNS_ERR
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             trace!("generate fake ip failed: {}", err);
                         }
                     }
+                }
+
+                // 实验开关 DROP_QUIC：丢弃发往 UDP 443 的数据报（QUIC），逼应用回落到 TCP。
+                if *option::DROP_QUIC && dst_addr.port() == 443 {
+                    option::tun_stats::UDP_DROP443
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    continue;
                 }
 
                 // Whether to override the destination according to Fake DNS.
@@ -547,6 +566,10 @@ pub fn new(
                     pkt_count += 1;
                     byte_count += pkt.len() as u64;
                     let pkt_len = pkt.len();
+                    option::tun_stats::PKT_OUT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    option::tun_stats::BYTES_OUT
+                        .fetch_add(pkt_len as u64, std::sync::atomic::Ordering::Relaxed);
+                    let send_at = Instant::now();
                     if let Err(e) = tun_sink.send(pkt).await {
                         warn!(
                             "[LEAF-PERF][TUN] stack->tun send failed after {} bytes pkt: {}",
@@ -554,6 +577,7 @@ pub fn new(
                         );
                         break;
                     }
+                    option::tun_stats::note_out_send(send_at.elapsed().as_millis() as u64);
                     if last_report.elapsed() >= Duration::from_secs(2) {
                         trace!(
                             "[TUN] stack->tun packets={} bytes={}",
@@ -577,6 +601,10 @@ pub fn new(
                     pkt_count += 1;
                     byte_count += pkt.len() as u64;
                     let pkt_len = pkt.len();
+                    option::tun_stats::PKT_IN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    option::tun_stats::BYTES_IN
+                        .fetch_add(pkt_len as u64, std::sync::atomic::Ordering::Relaxed);
+                    let send_at = Instant::now();
                     if let Err(e) = stack_sink.send(pkt).await {
                         warn!(
                             "[LEAF-PERF][TUN] tun->stack send failed after {} bytes pkt: {}",
@@ -584,6 +612,7 @@ pub fn new(
                         );
                         break;
                     }
+                    option::tun_stats::note_in_send(send_at.elapsed().as_millis() as u64);
                     if last_report.elapsed() >= Duration::from_secs(2) {
                         trace!(
                             "[TUN] tun->stack packets={} bytes={}",
@@ -611,6 +640,8 @@ pub fn new(
                 let permit = match tcp_slots.clone().try_acquire_owned() {
                     Ok(permit) => permit,
                     Err(_) => {
+                        option::TUN_TCP_REJECTED
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         log::warn!(
                             "[LEAF-PERF][TUN][TCP] concurrency full, closing {} -> {}",
                             local_addr,
@@ -626,6 +657,8 @@ pub fn new(
                 let inbound_tag = inbound_tag_cloned.clone();
                 let dispatcher = tcp_dispatcher.clone();
                 let fakedns = fakedns_cloned.clone();
+                option::tun_stats::TCP_ACCEPTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                option::tun_stats::TCP_ACTIVE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 tokio::spawn(async move {
                     let _permit = permit;
                     handle_inbound_stream(
@@ -637,6 +670,8 @@ pub fn new(
                         fakedns,
                     )
                     .await;
+                    option::tun_stats::TCP_ACTIVE
+                        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 });
             }
         }));

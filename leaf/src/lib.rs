@@ -468,6 +468,16 @@ pub fn traffic_bytes() -> (u64, u64) {
     }
 }
 
+/// 因 TUN TCP 并发上限已满而被关闭的连接累计数（见 `option::TUN_TCP_REJECTED`）。
+pub fn tun_tcp_rejected() -> u64 {
+    option::TUN_TCP_REJECTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// TUN 入口各阶段的诊断计数（JSON）。带 `_max_ms` 的字段读出后清零，其余是累计值。
+pub fn tun_stats() -> String {
+    option::tun_stats::json()
+}
+
 pub fn get_status() -> String {
     common::sync_valid_routes::GetValidRoutes()
 }
