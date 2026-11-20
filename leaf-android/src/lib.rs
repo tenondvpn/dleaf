@@ -339,6 +339,10 @@ fn set_p2p_ss(enabled: sys::jboolean) {
     leaf::set_p2p_ss(enabled != sys::JNI_FALSE);
 }
 
+fn set_drop_quic(drop: sys::jboolean) {
+    leaf::set_drop_quic(drop != sys::JNI_FALSE);
+}
+
 unsafe fn push_client_msg(env: JNIEnv, msg: JString) {
     if let Ok(msg) = jstring_to_string(env, msg) {
         leaf::push_client_msg(msg);
@@ -600,6 +604,18 @@ pub unsafe extern "C" fn Java_com_leaf_example_aleaf_SimpleVpnService_setClientP
     pk: JString,
 ) {
     set_client_pk_hash(env, pk);
+}
+
+// Whether the TUN inbound drops app UDP 443 (QUIC) so apps fall back to TCP.  `true` = drop,
+// `false` = forward.  Takes effect at once and may be called before or after runLeaf.
+#[allow(non_snake_case)]
+#[no_mangle]
+pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_setDropQuic(
+    _env: JNIEnv,
+    _: JClass,
+    drop: sys::jboolean,
+) {
+    set_drop_quic(drop);
 }
 
 #[allow(non_snake_case)]
