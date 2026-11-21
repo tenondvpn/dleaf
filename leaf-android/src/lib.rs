@@ -612,6 +612,20 @@ pub unsafe extern "C" fn Java_com_leaf_example_aleaf_SimpleVpnService_setP2pSs(
     set_p2p_ss(enabled);
 }
 
+// Runtime switch for dropping UDP 443 (QUIC) at the TUN inbound so apps fall back to TCP.
+// The Kotlin side (leaf.example.aleaf.SimpleVpnService) declares `setDropQuic(Boolean)`.
+#[allow(non_snake_case)]
+#[no_mangle]
+pub unsafe extern "C" fn Java_leaf_example_aleaf_SimpleVpnService_setDropQuic(
+    _env: JNIEnv,
+    _: JClass,
+    drop: sys::jboolean,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        leaf::set_drop_quic(drop != sys::JNI_FALSE);
+    }));
+}
+
 #[allow(non_snake_case)]
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_leaf_example_aleaf_client_pushClientMsg(
